@@ -1,0 +1,23 @@
+rule_code: "POL-USB-002"
+name: "Direct Executable Launch from Removable USB Storage"
+category: "usb"
+severity: "high"
+mitre_technique_id: "T1091"
+score_impact: 35
+enabled: true
+mode: "ENFORCE"
+response_action: "KILL_PROCESS"
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "process"
+    - field: "data.drive_type"
+      op: "in"
+      value: ["removable", "usb"]
+    - field: "data.image_path"
+      op: "regex"
+      value: "^[e-zE-Z]:\\\\"
+false_positive_notes: "Portable utility apps run by administrators."
+references:
+  - "https://attack.mitre.org/techniques/T1091/"

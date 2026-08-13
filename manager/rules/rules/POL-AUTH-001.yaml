@@ -1,0 +1,23 @@
+rule_code: "POL-AUTH-001"
+name: "High Frequency Windows Failed Login Burst (Brute Force)"
+category: "authentication"
+severity: "high"
+mitre_technique_id: "T1110.001"
+score_impact: 30
+enabled: true
+mode: "ENFORCE"
+response_action: "LOCK_WORKSTATION"
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "login"
+    - field: "data.status"
+      op: "eq"
+      value: "failed"
+    - field: "data.failed_attempts_count"
+      op: "gte"
+      value: 5
+false_positive_notes: "User forgetting password."
+references:
+  - "https://attack.mitre.org/techniques/T1110/001/"

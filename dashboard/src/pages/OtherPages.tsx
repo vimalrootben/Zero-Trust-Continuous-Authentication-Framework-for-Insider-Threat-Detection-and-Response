@@ -272,7 +272,7 @@ export const TimelinePage: React.FC = () => {
 
   // Filter state
   const [agentFilter, setAgentFilter] = useState('');
-  const [typeFilter, setTypeFilter] = useState('');
+  const [collectorFilter, setCollectorFilter] = useState('');
   const [textSearch, setTextSearch] = useState('');
 
   useEffect(() => {
@@ -281,11 +281,11 @@ export const TimelinePage: React.FC = () => {
 
   const fetchTelemetry = () => {
     setLoading(true);
-    api.getTelemetry(agentFilter || undefined, typeFilter || undefined, 200)
+    api.getTelemetry(agentFilter || undefined, collectorFilter || undefined, 200)
       .then(data => { setEvents(data); setLoading(false); });
   };
 
-  useEffect(() => { fetchTelemetry(); }, [agentFilter, typeFilter]);
+  useEffect(() => { fetchTelemetry(); }, [agentFilter, collectorFilter]);
 
   const filtered = events.filter(e =>
     !textSearch ||
@@ -313,14 +313,17 @@ export const TimelinePage: React.FC = () => {
             </select>
           </div>
           <div>
-            <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Event Type</label>
-            <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={selectStyle}>
+            <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Collector Type</label>
+            <select value={collectorFilter} onChange={e => setCollectorFilter(e.target.value)} style={selectStyle}>
               <option value="">All Types</option>
-              <option value="process_create">process_create</option>
-              <option value="network_connection">network_connection</option>
-              <option value="file_write">file_write</option>
-              <option value="auth_failure">auth_failure</option>
-              <option value="dns_query">dns_query</option>
+              <option value="process">process</option>
+              <option value="network">network</option>
+              <option value="file">file</option>
+              <option value="login">login</option>
+              <option value="registry">registry</option>
+              <option value="service">service</option>
+              <option value="usb">usb</option>
+              <option value="log">log</option>
             </select>
           </div>
           <div>
@@ -480,18 +483,39 @@ export const PoliciesPage: React.FC = () => {
 
       <div className="glass-card">
         <table className="data-table">
-          <thead><tr><th>Priority</th><th>Policy Name</th><th>Action</th><th>Condition</th><th>Status</th><th>Toggle</th></tr></thead>
+          <thead>
+            <tr>
+              <th>Code</th>
+              <th>Policy Name</th>
+              <th>Category</th>
+              <th>Severity</th>
+              <th>MITRE</th>
+              <th>Action</th>
+              <th>Mode</th>
+              <th>Triggers</th>
+              <th>Status</th>
+              <th>Toggle</th>
+            </tr>
+          </thead>
           <tbody>
             {policies.length === 0 ? (
-              <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '30px' }}>No policies. Click "New Policy" to create one.</td></tr>
+              <tr><td colSpan={10} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '30px' }}>No policies. Click "New Policy" to create one.</td></tr>
             ) : policies.map(p => (
               <tr key={p.id}>
-                <td style={{ fontWeight: 700, color: 'var(--accent-purple-light)' }}>#{p.priority}</td>
+                <td style={{ fontWeight: 700, color: 'var(--accent-purple-light)' }}>{p.policy_code || p.id.slice(0, 8)}</td>
                 <td style={{ fontWeight: 600 }}>{p.name}</td>
-                <td><span className="badge badge-critical">{p.action}</span></td>
-                <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                  {Object.values(p.condition?.conditions?.[0] || {}).join(' ')}
+                <td><span className="badge badge-low">{p.category || 'general'}</span></td>
+                <td>
+                  <span className={`badge ${p.severity === 'critical' || p.severity === 'high' ? 'badge-critical' : 'badge-medium'}`}>
+                    {(p.severity || 'medium').toUpperCase()}
+                  </span>
                 </td>
+                <td style={{ fontSize: '0.8rem', color: 'var(--accent-blue-light)' }}>
+                  {p.mitre_technique_id || 'N/A'}
+                </td>
+                <td><span className="badge badge-critical">{p.action}</span></td>
+                <td><span className="badge badge-low">{p.mode || 'ALERT_ONLY'}</span></td>
+                <td style={{ textAlign: 'center', fontWeight: 600 }}>{p.trigger_count || 0}</td>
                 <td>
                   <span className={`badge ${p.enabled ? 'badge-low' : 'badge-medium'}`}>
                     {p.enabled ? 'Active' : 'Disabled'}
@@ -667,6 +691,9 @@ export const SettingsPage: React.FC = () => {
     setLoading(true);
     api.getManagerInfo().then(d => { setInfo(d); setLoading(false); });
   };
+
+  // Auto-load on mount
+  useEffect(() => { fetchInfo(); }, []);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>

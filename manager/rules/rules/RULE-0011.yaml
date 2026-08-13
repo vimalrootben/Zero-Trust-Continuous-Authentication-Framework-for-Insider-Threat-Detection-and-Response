@@ -1,0 +1,22 @@
+rule_code: "RULE-0011"
+name: "Office Application Spawning Command Shell"
+category: "execution"
+severity: "critical"
+mitre_technique_id: "T1059.003"
+score_impact: 35
+enabled: true
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "process"
+    - field: "data.parent_process_name"
+      op: "in"
+      value: ["winword.exe", "excel.exe", "powerpnt.exe", "outlook.exe"]
+    - field: "data.process_name"
+      op: "in"
+      value: ["cmd.exe", "powershell.exe", "pwsh.exe", "cscript.exe", "wscript.exe"]
+response_action: "KILL_PROCESS"
+false_positive_notes: "Legacy VBA macros calling external helper scripts."
+references:
+  - "https://attack.mitre.org/techniques/T1059/003/"

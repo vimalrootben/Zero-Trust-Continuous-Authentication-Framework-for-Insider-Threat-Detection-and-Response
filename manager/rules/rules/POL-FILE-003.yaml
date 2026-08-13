@@ -1,0 +1,23 @@
+rule_code: "POL-FILE-003"
+name: "Double File Extension Executable Dropped"
+category: "files"
+severity: "high"
+mitre_technique_id: "T1036.007"
+score_impact: 35
+enabled: true
+mode: "ENFORCE"
+response_action: "QUARANTINE_FILE"
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "file"
+    - field: "data.change_type"
+      op: "in"
+      value: ["created", "modified"]
+    - field: "data.file_path"
+      op: "regex"
+      value: "\\.(pdf|doc|docx|xls|xlsx|jpg|png|txt)\\.(exe|scr|pif|vbs)$"
+false_positive_notes: "Very rare in legitimate environments."
+references:
+  - "https://attack.mitre.org/techniques/T1036/007/"

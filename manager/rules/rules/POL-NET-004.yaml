@@ -1,0 +1,23 @@
+rule_code: "POL-NET-004"
+name: "Listening Port Bound by Executable in User Temp Directory"
+category: "network"
+severity: "high"
+mitre_technique_id: "T1571"
+score_impact: 35
+enabled: true
+mode: "ENFORCE"
+response_action: "ISOLATE_HOST"
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "network"
+    - field: "data.state"
+      op: "eq"
+      value: "LISTEN"
+    - field: "data.process_path"
+      op: "regex"
+      value: "(temp|tmp|appdata)"
+false_positive_notes: "Local test web servers compiled by developers."
+references:
+  - "https://attack.mitre.org/techniques/T1571/"

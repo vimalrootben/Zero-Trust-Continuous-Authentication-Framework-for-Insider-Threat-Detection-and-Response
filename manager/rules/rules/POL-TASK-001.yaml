@@ -1,0 +1,23 @@
+rule_code: "POL-TASK-001"
+name: "Scheduled Task Executing Hidden Script Payload"
+category: "scheduled_task"
+severity: "medium"
+mitre_technique_id: "T1053.005"
+score_impact: 25
+enabled: true
+mode: "ALERT_ONLY"
+response_action: "ALERT"
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "scheduled_task"
+    - field: "data.action"
+      op: "in"
+      value: ["created", "registered"]
+    - field: "data.task_action"
+      op: "regex"
+      value: "-w(indowstyle)?\\s+hidden|-e(ncodedcommand)?"
+false_positive_notes: "System updater background tasks."
+references:
+  - "https://attack.mitre.org/techniques/T1053/005/"

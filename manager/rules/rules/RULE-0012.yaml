@@ -1,0 +1,25 @@
+rule_code: "RULE-0012"
+name: "LSASS Memory Access for Credential Dumping"
+category: "credential_access"
+severity: "critical"
+mitre_technique_id: "T1003.001"
+score_impact: 40
+enabled: true
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "process"
+    - field: "data.target_process"
+      op: "eq"
+      value: "lsass.exe"
+    - field: "data.access_type"
+      op: "in"
+      value: ["memory_read", "process_dump", "open_process"]
+    - field: "data.user_sid"
+      op: "ne"
+      value: "S-1-5-18"
+response_action: "KILL_PROCESS"
+false_positive_notes: "Antivirus or security monitoring agents auditing LSASS."
+references:
+  - "https://attack.mitre.org/techniques/T1003/001/"

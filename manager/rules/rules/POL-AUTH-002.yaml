@@ -1,0 +1,23 @@
+rule_code: "POL-AUTH-002"
+name: "Untrusted Remote Desktop (RDP) Network Session"
+category: "authentication"
+severity: "high"
+mitre_technique_id: "T1021.001"
+score_impact: 30
+enabled: true
+mode: "ENFORCE"
+response_action: "LOGOFF_USER"
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "login"
+    - field: "data.logon_type"
+      op: "in"
+      value: [10, "RDP", "RemoteInteractive"]
+    - field: "data.is_trusted_ip"
+      op: "eq"
+      value: false
+false_positive_notes: "Contractor connecting without corporate VPN."
+references:
+  - "https://attack.mitre.org/techniques/T1021/001/"

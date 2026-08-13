@@ -1,0 +1,29 @@
+rule_code: "RULE-0010"
+name: "Unsigned Binary Execution from Temp or Public Directory"
+category: "execution"
+severity: "high"
+mitre_technique_id: "T1059"
+score_impact: 20
+enabled: true
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "process"
+    - field: "data.signed"
+      op: "eq"
+      value: false
+    - any:
+        - field: "data.executable_path"
+          op: "contains_icase"
+          value: "\\Temp\\"
+        - field: "data.executable_path"
+          op: "contains_icase"
+          value: "\\Users\\Public\\"
+        - field: "data.executable_path"
+          op: "contains_icase"
+          value: "\\AppData\\Local\\Temp\\"
+response_action: "KILL_PROCESS"
+false_positive_notes: "Unsigned open-source utilities executed from temp."
+references:
+  - "https://attack.mitre.org/techniques/T1059/"

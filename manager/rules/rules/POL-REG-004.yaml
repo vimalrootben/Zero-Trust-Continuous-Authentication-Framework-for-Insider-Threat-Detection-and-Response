@@ -1,0 +1,23 @@
+rule_code: "POL-REG-004"
+name: "User Init Mpr Logon Script Persistence"
+category: "registry"
+severity: "high"
+mitre_technique_id: "T1037.001"
+score_impact: 30
+enabled: true
+mode: "ALERT_ONLY"
+response_action: "ALERT"
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "registry"
+    - field: "data.key_path"
+      op: "contains_icase"
+      value: "Environment"
+    - field: "data.value_name"
+      op: "eq"
+      value: "UserInitMprLogonScript"
+false_positive_notes: "Corporate domain logon scripts."
+references:
+  - "https://attack.mitre.org/techniques/T1037/001/"

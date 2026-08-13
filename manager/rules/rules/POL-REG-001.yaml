@@ -1,0 +1,23 @@
+rule_code: "POL-REG-001"
+name: "Registry Run / RunOnce Autostart Key Modification"
+category: "registry"
+severity: "medium"
+mitre_technique_id: "T1547.001"
+score_impact: 20
+enabled: true
+mode: "ALERT_ONLY"
+response_action: "ALERT"
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "registry"
+    - field: "data.key_path"
+      op: "contains_icase"
+      value: "\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run"
+    - field: "data.value_data"
+      op: "regex"
+      value: "(temp|appdata|tmp|wscript|cscript)"
+false_positive_notes: "Startup programs added by legitimate applications."
+references:
+  - "https://attack.mitre.org/techniques/T1547/001/"

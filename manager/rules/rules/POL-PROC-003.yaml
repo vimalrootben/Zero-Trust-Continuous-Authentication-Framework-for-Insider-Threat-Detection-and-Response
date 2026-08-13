@@ -1,0 +1,26 @@
+rule_code: "POL-PROC-003"
+name: "Certutil Ingress Tool Transfer Attempt"
+category: "process"
+severity: "high"
+mitre_technique_id: "T1105"
+score_impact: 35
+enabled: true
+mode: "ENFORCE"
+response_action: "KILL_PROCESS"
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "process"
+    - field: "data.process_name"
+      op: "contains_icase"
+      value: "certutil.exe"
+    - field: "data.command_line"
+      op: "contains_icase"
+      value: "-urlcache"
+    - field: "data.command_line"
+      op: "contains_icase"
+      value: "-f"
+false_positive_notes: "Administrative certificate fetching."
+references:
+  - "https://attack.mitre.org/techniques/T1105/"

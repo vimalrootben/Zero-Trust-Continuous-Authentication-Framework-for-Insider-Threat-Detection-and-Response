@@ -1,0 +1,23 @@
+rule_code: "POL-NET-001"
+name: "Outbound Network Connection to Threat Intel C2 IP"
+category: "network"
+severity: "critical"
+mitre_technique_id: "T1071"
+score_impact: 40
+enabled: true
+mode: "ENFORCE"
+response_action: "ISOLATE_HOST"
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "network"
+    - field: "data.direction"
+      op: "eq"
+      value: "outbound"
+    - field: "data.remote_ip"
+      op: "ioc_match"
+      value: "ip"
+false_positive_notes: "Threat feed false positives on shared CDN IP addresses."
+references:
+  - "https://attack.mitre.org/techniques/T1071/"

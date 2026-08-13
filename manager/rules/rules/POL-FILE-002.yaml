@@ -1,0 +1,23 @@
+rule_code: "POL-FILE-002"
+name: "Executable File Dropped in Windows Startup Folder"
+category: "files"
+severity: "high"
+mitre_technique_id: "T1547.001"
+score_impact: 30
+enabled: true
+mode: "ENFORCE"
+response_action: "QUARANTINE_FILE"
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "file"
+    - field: "data.file_path"
+      op: "contains_icase"
+      value: "Microsoft\\Windows\\Start Menu\\Programs\\Startup"
+    - field: "data.file_path"
+      op: "regex"
+      value: "\\.(exe|bat|ps1|vbs|cmd)$"
+false_positive_notes: "Software installers adding auto-start shortcuts."
+references:
+  - "https://attack.mitre.org/techniques/T1547/001/"

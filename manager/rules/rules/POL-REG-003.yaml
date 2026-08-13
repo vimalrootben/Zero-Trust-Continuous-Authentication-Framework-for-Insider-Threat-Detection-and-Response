@@ -1,0 +1,26 @@
+rule_code: "POL-REG-003"
+name: "Winlogon Helper DLL or Userinit Key Tampering"
+category: "registry"
+severity: "high"
+mitre_technique_id: "T1547.004"
+score_impact: 40
+enabled: true
+mode: "ALERT_ONLY"
+response_action: "ALERT"
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "registry"
+    - field: "data.key_path"
+      op: "contains_icase"
+      value: "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon"
+    - field: "data.value_name"
+      op: "in"
+      value: ["Userinit", "Shell"]
+    - field: "data.value_data"
+      op: "regex"
+      value: "(?!.*userinit\\.exe)(?!.*explorer\\.exe)"
+false_positive_notes: "Custom desktop shell software."
+references:
+  - "https://attack.mitre.org/techniques/T1547/004/"

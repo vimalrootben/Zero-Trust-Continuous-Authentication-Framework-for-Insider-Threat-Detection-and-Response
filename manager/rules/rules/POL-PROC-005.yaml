@@ -1,0 +1,29 @@
+rule_code: "POL-PROC-005"
+name: "Regsvr32 Remote Scriptlet Execution (Squiblydoo)"
+category: "process"
+severity: "high"
+mitre_technique_id: "T1218.010"
+score_impact: 35
+enabled: true
+mode: "ENFORCE"
+response_action: "KILL_PROCESS"
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "process"
+    - field: "data.process_name"
+      op: "contains_icase"
+      value: "regsvr32.exe"
+    - field: "data.command_line"
+      op: "contains_icase"
+      value: "/s"
+    - field: "data.command_line"
+      op: "contains_icase"
+      value: "/u"
+    - field: "data.command_line"
+      op: "regex"
+      value: "scrobj\\.dll"
+false_positive_notes: "Software installers registering legacy components."
+references:
+  - "https://attack.mitre.org/techniques/T1218/010/"

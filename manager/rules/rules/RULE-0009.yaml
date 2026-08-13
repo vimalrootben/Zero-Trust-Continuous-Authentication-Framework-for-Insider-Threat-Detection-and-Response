@@ -1,0 +1,22 @@
+rule_code: "RULE-0009"
+name: "LOLBin Execution Spawning Command Shell"
+category: "execution"
+severity: "high"
+mitre_technique_id: "T1218"
+score_impact: 25
+enabled: true
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "process"
+    - field: "data.parent_process_name"
+      op: "in"
+      value: ["wmic.exe", "mshta.exe", "rundll32.exe", "regsvr32.exe"]
+    - field: "data.process_name"
+      op: "in"
+      value: ["cmd.exe", "powershell.exe", "pwsh.exe"]
+response_action: "KILL_PROCESS"
+false_positive_notes: "Administrative management scripts using WMIC."
+references:
+  - "https://attack.mitre.org/techniques/T1218/"

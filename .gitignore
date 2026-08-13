@@ -37,6 +37,8 @@ agent/certs/
 *.sln
 *.swp
 
-# OS
-Thumbs.db
-Desktop.ini
+# Runtime & Logs
+.quarantine/
+logs/
+*.log
+

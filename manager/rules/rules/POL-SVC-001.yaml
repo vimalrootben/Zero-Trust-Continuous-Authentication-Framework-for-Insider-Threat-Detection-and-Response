@@ -1,0 +1,23 @@
+rule_code: "POL-SVC-001"
+name: "Suspicious Service Installed from User Writable Directory"
+category: "services"
+severity: "high"
+mitre_technique_id: "T1543.003"
+score_impact: 30
+enabled: true
+mode: "ENFORCE"
+response_action: "KILL_PROCESS"
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "service"
+    - field: "data.action"
+      op: "in"
+      value: ["created", "installed"]
+    - field: "data.binary_path"
+      op: "regex"
+      value: "(appdata|temp|tmp|downloads).*\\.exe"
+false_positive_notes: "Third-party software setup tools installing services."
+references:
+  - "https://attack.mitre.org/techniques/T1543/003/"

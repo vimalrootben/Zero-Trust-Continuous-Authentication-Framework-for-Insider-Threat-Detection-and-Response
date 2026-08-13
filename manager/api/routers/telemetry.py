@@ -86,7 +86,24 @@ async def receive_telemetry_batch(
         db.add(event)
         accepted_count += 1
 
-    # 4. Record sync log entry
+        # 4. Evaluate event through Policy Engine
+        try:
+            import os
+            from manager.policy.policy_engine import PolicyEngine
+            rules_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "rules", "rules")
+            engine = PolicyEngine(rules_dir=rules_dir, db_session=db)
+            event_data = {
+                "collector_type": event_dto.collector_type,
+                "event_type": event_dto.event_type,
+                "data": event_dto.data,
+            }
+            policy_results = engine.evaluate_event(event_data=event_data, agent_id=str(payload.agent_id), db_session=db)
+            if policy_results:
+                event.processed = True
+        except Exception as eval_err:
+            logger.error(f"Error evaluating policy for event {event_dto.event_id}: {eval_err}")
+
+    # 5. Record sync log entry
     sync_log = OfflineSyncLog(
         agent_id=payload.agent_id,
         batch_id=payload.batch_id,

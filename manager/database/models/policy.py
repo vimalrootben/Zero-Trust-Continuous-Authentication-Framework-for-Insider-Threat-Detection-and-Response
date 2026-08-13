@@ -1,6 +1,7 @@
 import uuid
+from datetime import datetime
 from typing import List, Optional
-from sqlalchemy import String, Text, Boolean, Integer, ForeignKey, JSON
+from sqlalchemy import String, Text, Boolean, Integer, ForeignKey, JSON, DateTime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from manager.database.base import Base, TimestampUUIDMixin
 
@@ -17,12 +18,20 @@ class PolicyGroup(Base, TimestampUUIDMixin):
 class Policy(Base, TimestampUUIDMixin):
     __tablename__ = "policies"
 
+    policy_code: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    category: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    severity: Mapped[Optional[str]] = mapped_column(String(32), default="medium", nullable=True)
+    risk_impact: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
+    mitre_technique_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     condition_json: Mapped[dict] = mapped_column(JSON, nullable=False)
     actions_json: Mapped[dict] = mapped_column(JSON, nullable=False)
     priority: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    mode: Mapped[str] = mapped_column(String(32), default="ALERT_ONLY", nullable=False)
+    trigger_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_triggered_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     policy_group_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         ForeignKey("policy_groups.id", ondelete="SET NULL"),
         nullable=True

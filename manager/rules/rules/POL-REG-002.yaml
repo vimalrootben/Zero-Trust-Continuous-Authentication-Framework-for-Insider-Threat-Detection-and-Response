@@ -1,0 +1,23 @@
+rule_code: "POL-REG-002"
+name: "Image File Execution Options (IFEO) Debugger Hijacking"
+category: "registry"
+severity: "critical"
+mitre_technique_id: "T1546.012"
+score_impact: 45
+enabled: true
+mode: "ALERT_ONLY"
+response_action: "ALERT"
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "registry"
+    - field: "data.key_path"
+      op: "contains_icase"
+      value: "Image File Execution Options"
+    - field: "data.value_name"
+      op: "contains_icase"
+      value: "Debugger"
+false_positive_notes: "Developer debugging utilities (VS Code, WinDbg)."
+references:
+  - "https://attack.mitre.org/techniques/T1546/012/"

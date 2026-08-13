@@ -1,0 +1,23 @@
+rule_code: "POL-AUTH-003"
+name: "Privilege Escalation via Security Token Impersonation"
+category: "authentication"
+severity: "critical"
+mitre_technique_id: "T1134"
+score_impact: 40
+enabled: true
+mode: "ALERT_ONLY"
+response_action: "ALERT"
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "login"
+    - field: "data.logon_type"
+      op: "in"
+      value: [9, "NewCredentials"]
+    - field: "data.elevated"
+      op: "eq"
+      value: true
+false_positive_notes: "RunAs administration commands."
+references:
+  - "https://attack.mitre.org/techniques/T1134/"

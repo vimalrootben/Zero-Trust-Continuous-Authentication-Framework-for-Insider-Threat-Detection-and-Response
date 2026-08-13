@@ -1,0 +1,23 @@
+rule_code: "POL-NET-003"
+name: "High Volume Network Reconnaissance Port Scan Burst"
+category: "network"
+severity: "medium"
+mitre_technique_id: "T1046"
+score_impact: 30
+enabled: true
+mode: "ENFORCE"
+response_action: "BLOCK_NETWORK"
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "network"
+    - field: "data.distinct_ports_count"
+      op: "gt"
+      value: 15
+    - field: "data.direction"
+      op: "eq"
+      value: "outbound"
+false_positive_notes: "Network diagnostic scanners (Nmap, Angry IP)."
+references:
+  - "https://attack.mitre.org/techniques/T1046/"

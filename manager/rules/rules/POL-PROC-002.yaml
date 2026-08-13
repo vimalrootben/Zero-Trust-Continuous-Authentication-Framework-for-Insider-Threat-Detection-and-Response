@@ -1,0 +1,23 @@
+rule_code: "POL-PROC-002"
+name: "MSHTA Remote Scriptlet Execution"
+category: "process"
+severity: "high"
+mitre_technique_id: "T1218.005"
+score_impact: 40
+enabled: true
+mode: "ENFORCE"
+response_action: "KILL_PROCESS"
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "process"
+    - field: "data.process_name"
+      op: "contains_icase"
+      value: "mshta.exe"
+    - field: "data.command_line"
+      op: "regex"
+      value: "mshta(\\.exe)?\\s+.*(http|ftp|javascript|vbscript):"
+false_positive_notes: "Legacy intranet web applications."
+references:
+  - "https://attack.mitre.org/techniques/T1218/005/"

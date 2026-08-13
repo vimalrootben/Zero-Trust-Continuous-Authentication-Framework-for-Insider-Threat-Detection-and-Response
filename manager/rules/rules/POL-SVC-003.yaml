@@ -1,0 +1,20 @@
+rule_code: "POL-SVC-003"
+name: "Service Executing via Command Shell Wrapper"
+category: "services"
+severity: "high"
+mitre_technique_id: "T1543.003"
+score_impact: 40
+enabled: true
+mode: "ENFORCE"
+response_action: "KILL_PROCESS"
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "service"
+    - field: "data.binary_path"
+      op: "regex"
+      value: "(cmd\\.exe|powershell\\.exe)\\s+/(c|k|command)"
+false_positive_notes: "System management scripts running as services."
+references:
+  - "https://attack.mitre.org/techniques/T1543/003/"

@@ -7,6 +7,7 @@ Supported Operators:
 Supported Combinators:
   all (AND list), any (OR list), not (negation dict/list)
 """
+import fnmatch
 import re
 from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
 
@@ -24,7 +25,9 @@ class ConditionEvaluator:
 
     OPERATORS = {
         "eq", "ne", "gt", "gte", "lt", "lte",
+        "==", "!=", ">", ">=", "<", "<=",
         "in", "not_in", "contains", "contains_icase",
+        "startswith", "startswith_icase", "endswith", "endswith_icase", "wildcard",
         "regex", "exists", "not_exists", "ioc_match"
     }
 
@@ -76,7 +79,7 @@ class ConditionEvaluator:
 
         # Leaf condition evaluation
         field_path = condition.get("field")
-        op = condition.get("op")
+        op = condition.get("op") or condition.get("operator")
         target_val = condition.get("value")
 
         if not field_path or not op:
@@ -107,17 +110,17 @@ class ConditionEvaluator:
         if actual is None:
             return False
 
-        if op == "eq":
+        if op in ("eq", "=="):
             return actual == target
-        if op == "ne":
+        if op in ("ne", "!="):
             return actual != target
-        if op == "gt":
+        if op in ("gt", ">"):
             return actual > target
-        if op == "gte":
+        if op in ("gte", ">="):
             return actual >= target
-        if op == "lt":
+        if op in ("lt", "<"):
             return actual < target
-        if op == "lte":
+        if op in ("lte", "<="):
             return actual <= target
         if op == "in":
             if isinstance(target, (list, tuple, set)):
@@ -136,6 +139,16 @@ class ConditionEvaluator:
                 target_str = str(target).lower()
                 return any(target_str in str(item).lower() for item in actual)
             return str(target).lower() in str(actual).lower()
+        if op == "startswith":
+            return str(actual).startswith(str(target))
+        if op == "startswith_icase":
+            return str(actual).lower().startswith(str(target).lower())
+        if op == "endswith":
+            return str(actual).endswith(str(target))
+        if op == "endswith_icase":
+            return str(actual).lower().endswith(str(target).lower())
+        if op == "wildcard":
+            return fnmatch.fnmatch(str(actual).lower(), str(target).lower())
         if op == "regex":
             try:
                 return bool(re.search(str(target), str(actual), re.IGNORECASE))

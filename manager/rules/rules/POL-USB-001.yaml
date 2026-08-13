@@ -1,0 +1,23 @@
+rule_code: "POL-USB-001"
+name: "Unauthorized USB Mass Storage Attachment"
+category: "usb"
+severity: "low"
+mitre_technique_id: "T1091"
+score_impact: 15
+enabled: true
+mode: "ALERT_ONLY"
+response_action: "ALERT"
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "usb"
+    - field: "data.event_type"
+      op: "eq"
+      value: "inserted"
+    - field: "data.is_trusted"
+      op: "eq"
+      value: false
+false_positive_notes: "Newly issued employee flash drive."
+references:
+  - "https://attack.mitre.org/techniques/T1091/"

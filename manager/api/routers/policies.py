@@ -29,12 +29,20 @@ class PolicyCreate(BaseModel):
 
 class PolicyResponse(BaseModel):
     id: str
+    policy_code: Optional[str] = None
     name: str
     description: Optional[str] = None
+    category: Optional[str] = None
+    severity: Optional[str] = "medium"
+    risk_impact: int = 10
+    mitre_technique_id: Optional[str] = None
     action: str
     condition: dict
     priority: int
     enabled: bool
+    mode: str = "ALERT_ONLY"
+    trigger_count: int = 0
+    last_triggered_at: Optional[str] = None
     created_at: str
 
 
@@ -48,15 +56,23 @@ async def list_policies(
     policies = result.scalars().all()
     out = []
     for p in policies:
-        action_val = p.actions_json.get("action", "DISABLE_NETWORK") if p.actions_json else "DISABLE_NETWORK"
+        action_val = p.actions_json.get("action", "ALERT") if p.actions_json else "ALERT"
         out.append(PolicyResponse(
             id=str(p.id),
+            policy_code=p.policy_code or str(p.id)[:8],
             name=p.name,
             description=p.description,
+            category=p.category or "general",
+            severity=p.severity or "medium",
+            risk_impact=p.risk_impact if p.risk_impact is not None else 10,
+            mitre_technique_id=p.mitre_technique_id,
             action=action_val,
             condition=p.condition_json or {},
             priority=p.priority,
             enabled=p.enabled,
+            mode=p.mode or "ALERT_ONLY",
+            trigger_count=p.trigger_count or 0,
+            last_triggered_at=p.last_triggered_at.isoformat() if p.last_triggered_at else None,
             created_at=p.created_at.isoformat() if p.created_at else datetime.now(timezone.utc).isoformat()
         ))
     return out
@@ -71,8 +87,8 @@ async def create_policy(
     """Create a new automated security response policy."""
     policy_id = uuid.uuid4()
     now = datetime.now(timezone.utc)
+    policy_code = f"POL-CUSTOM-{str(policy_id)[:4].upper()}"
 
-    # Build condition tree JSON
     condition_json = {
         "operator": "and",
         "conditions": [
@@ -87,12 +103,17 @@ async def create_policy(
 
     p = PolicyModel(
         id=policy_id,
+        policy_code=policy_code,
         name=req.name,
         description=req.description,
+        category="custom",
+        severity="medium",
+        risk_impact=15,
         condition_json=condition_json,
         actions_json=actions_json,
         priority=req.priority,
         enabled=req.enabled,
+        mode="ALERT_ONLY",
         created_at=now
     )
     db.add(p)
@@ -101,12 +122,20 @@ async def create_policy(
 
     return PolicyResponse(
         id=str(p.id),
+        policy_code=p.policy_code,
         name=p.name,
         description=p.description,
+        category=p.category,
+        severity=p.severity,
+        risk_impact=p.risk_impact,
+        mitre_technique_id=p.mitre_technique_id,
         action=req.action,
         condition=p.condition_json,
         priority=p.priority,
         enabled=p.enabled,
+        mode=p.mode,
+        trigger_count=0,
+        last_triggered_at=None,
         created_at=now.isoformat()
     )
 
@@ -128,14 +157,22 @@ async def toggle_policy(
     await db.commit()
     await db.refresh(p)
 
-    action_val = p.actions_json.get("action", "DISABLE_NETWORK") if p.actions_json else "DISABLE_NETWORK"
+    action_val = p.actions_json.get("action", "ALERT") if p.actions_json else "ALERT"
     return PolicyResponse(
         id=str(p.id),
+        policy_code=p.policy_code or str(p.id)[:8],
         name=p.name,
         description=p.description,
+        category=p.category or "general",
+        severity=p.severity or "medium",
+        risk_impact=p.risk_impact if p.risk_impact is not None else 10,
+        mitre_technique_id=p.mitre_technique_id,
         action=action_val,
         condition=p.condition_json or {},
         priority=p.priority,
         enabled=p.enabled,
+        mode=p.mode or "ALERT_ONLY",
+        trigger_count=p.trigger_count or 0,
+        last_triggered_at=p.last_triggered_at.isoformat() if p.last_triggered_at else None,
         created_at=p.created_at.isoformat() if p.created_at else datetime.now(timezone.utc).isoformat()
     )

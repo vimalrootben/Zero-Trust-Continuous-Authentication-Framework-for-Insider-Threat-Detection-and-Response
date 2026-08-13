@@ -1,0 +1,23 @@
+rule_code: "POL-SELF-002"
+name: "EDR Agent Configuration or Certificate File Tampering"
+category: "self_protection"
+severity: "critical"
+mitre_technique_id: "T1562.001"
+score_impact: 50
+enabled: true
+mode: "ENFORCE"
+response_action: "ISOLATE_HOST"
+condition:
+  all:
+    - field: "collector_type"
+      op: "in"
+      value: ["file", "registry"]
+    - field: "data.file_path"
+      op: "regex"
+      value: "(agent\\.yaml|ca\\.crt|agent\\.key|agent\\.crt)$"
+    - field: "data.change_type"
+      op: "in"
+      value: ["deleted", "modified", "tampered"]
+false_positive_notes: "Agent update process."
+references:
+  - "https://attack.mitre.org/techniques/T1562/001/"

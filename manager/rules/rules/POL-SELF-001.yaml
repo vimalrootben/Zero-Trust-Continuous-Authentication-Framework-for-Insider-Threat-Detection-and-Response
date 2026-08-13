@@ -1,0 +1,23 @@
+rule_code: "POL-SELF-001"
+name: "EDR Agent Service / Process Termination Attempt"
+category: "self_protection"
+severity: "critical"
+mitre_technique_id: "T1562.001"
+score_impact: 50
+enabled: true
+mode: "ENFORCE"
+response_action: "ISOLATE_HOST"
+condition:
+  all:
+    - field: "collector_type"
+      op: "in"
+      value: ["process", "log"]
+    - field: "data.target_process"
+      op: "in"
+      value: ["zt_agent.exe", "edr_agent.exe", "zerotrust_agent.exe"]
+    - field: "data.action"
+      op: "in"
+      value: ["kill", "terminate", "stop", "open_process_write"]
+false_positive_notes: "Authorized agent uninstaller."
+references:
+  - "https://attack.mitre.org/techniques/T1562/001/"

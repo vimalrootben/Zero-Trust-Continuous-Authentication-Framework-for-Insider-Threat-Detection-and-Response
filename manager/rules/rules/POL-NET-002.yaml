@@ -1,0 +1,26 @@
+rule_code: "POL-NET-002"
+name: "Suspicious Outbound Connection by Dual-Use System Binary"
+category: "network"
+severity: "medium"
+mitre_technique_id: "T1071.001"
+score_impact: 25
+enabled: true
+mode: "ENFORCE"
+response_action: "BLOCK_NETWORK"
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "network"
+    - field: "data.process_name"
+      op: "in"
+      value: ["rundll32.exe", "regsvr32.exe", "certutil.exe", "mshta.exe"]
+    - field: "data.direction"
+      op: "eq"
+      value: "outbound"
+    - field: "data.remote_port"
+      op: "not_in"
+      value: [80, 443]
+false_positive_notes: "Enterprise proxy setups."
+references:
+  - "https://attack.mitre.org/techniques/T1071/001/"

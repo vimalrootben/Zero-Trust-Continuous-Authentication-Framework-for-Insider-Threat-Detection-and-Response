@@ -1,0 +1,23 @@
+rule_code: "POL-TASK-002"
+name: "SYSTEM Elevated Scheduled Task in Temp Directory"
+category: "scheduled_task"
+severity: "high"
+mitre_technique_id: "T1053.005"
+score_impact: 35
+enabled: true
+mode: "ALERT_ONLY"
+response_action: "ALERT"
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "scheduled_task"
+    - field: "data.user"
+      op: "contains_icase"
+      value: "SYSTEM"
+    - field: "data.task_action"
+      op: "regex"
+      value: "(temp|tmp|appdata)"
+false_positive_notes: "Software installers running elevated setup tasks."
+references:
+  - "https://attack.mitre.org/techniques/T1053/005/"

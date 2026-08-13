@@ -1,0 +1,26 @@
+rule_code: "POL-NET-005"
+name: "Windows Firewall Protection State Disabled"
+category: "network"
+severity: "high"
+mitre_technique_id: "T1562.004"
+score_impact: 35
+enabled: true
+mode: "ALERT_ONLY"
+response_action: "ALERT"
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "process"
+    - field: "data.process_name"
+      op: "contains_icase"
+      value: "netsh.exe"
+    - field: "data.command_line"
+      op: "contains_icase"
+      value: "advfirewall"
+    - field: "data.command_line"
+      op: "contains_icase"
+      value: "off"
+false_positive_notes: "VPN installer setting up custom TAP adapter rules."
+references:
+  - "https://attack.mitre.org/techniques/T1562/004/"

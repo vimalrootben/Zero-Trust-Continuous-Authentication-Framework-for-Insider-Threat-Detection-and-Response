@@ -1,0 +1,23 @@
+rule_code: "POL-SVC-002"
+name: "Windows Service Binary Path Tampering"
+category: "services"
+severity: "high"
+mitre_technique_id: "T1543.003"
+score_impact: 35
+enabled: true
+mode: "ALERT_ONLY"
+response_action: "ALERT"
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "service"
+    - field: "data.action"
+      op: "eq"
+      value: "modified"
+    - field: "data.field_changed"
+      op: "eq"
+      value: "ImagePath"
+false_positive_notes: "Legitimate software update modifying service image path."
+references:
+  - "https://attack.mitre.org/techniques/T1543/003/"

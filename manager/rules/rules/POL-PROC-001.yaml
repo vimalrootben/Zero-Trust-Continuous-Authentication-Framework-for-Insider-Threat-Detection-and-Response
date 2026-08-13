@@ -1,0 +1,26 @@
+rule_code: "POL-PROC-001"
+name: "Suspicious Rundll32 Execution Without Parameters"
+category: "process"
+severity: "high"
+mitre_technique_id: "T1218.011"
+score_impact: 35
+enabled: true
+mode: "ALERT_ONLY"
+response_action: "ALERT"
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "process"
+    - field: "data.process_name"
+      op: "contains_icase"
+      value: "rundll32.exe"
+    - field: "data.parent_process_name"
+      op: "in"
+      value: ["cmd.exe", "powershell.exe", "wscript.exe", "cscript.exe"]
+    - field: "data.command_line"
+      op: "regex"
+      value: "rundll32(\\.exe)?\\s*$"
+false_positive_notes: "Rare admin maintenance scripts."
+references:
+  - "https://attack.mitre.org/techniques/T1218/011/"

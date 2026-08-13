@@ -1,0 +1,26 @@
+rule_code: "POL-FILE-004"
+name: "Browser Executable Download to User Downloads Directory"
+category: "files"
+severity: "medium"
+mitre_technique_id: "T1204.002"
+score_impact: 20
+enabled: true
+mode: "ALERT_ONLY"
+response_action: "ALERT"
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "file"
+    - field: "data.process_name"
+      op: "in"
+      value: ["chrome.exe", "msedge.exe", "firefox.exe", "brave.exe"]
+    - field: "data.file_path"
+      op: "contains_icase"
+      value: "\\Downloads\\"
+    - field: "data.file_path"
+      op: "regex"
+      value: "\\.(exe|msi|iso|vhd|cab)$"
+false_positive_notes: "User downloading software installers."
+references:
+  - "https://attack.mitre.org/techniques/T1204/002/"

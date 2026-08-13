@@ -17,7 +17,7 @@ class InvalidRuleError(Exception):
 
 
 class RuleDTO:
-    """In-memory representation of a validated detection rule."""
+    """In-memory representation of a validated detection rule or policy."""
 
     def __init__(
         self,
@@ -30,6 +30,7 @@ class RuleDTO:
         mitre_technique_id: Optional[str] = None,
         response_action: Optional[str] = None,
         enabled: bool = True,
+        mode: str = "ALERT_ONLY",
         false_positive_notes: Optional[str] = None,
         references: Optional[List[str]] = None,
         rule_id: Optional[str] = None,
@@ -44,12 +45,13 @@ class RuleDTO:
         self.mitre_technique_id = mitre_technique_id
         self.response_action = response_action
         self.enabled = enabled
+        self.mode = mode
         self.false_positive_notes = false_positive_notes
         self.references = references or []
 
 
 class RuleLoader:
-    """Loads and validates detection rules."""
+    """Loads and validates detection rules and policies."""
 
     def __init__(self) -> None:
         self.evaluator = ConditionEvaluator()
@@ -102,6 +104,7 @@ class RuleLoader:
                                 mitre_technique_id=data.get("mitre_technique_id"),
                                 response_action=data.get("response_action"),
                                 enabled=data.get("enabled", True),
+                                mode=data.get("mode", "ALERT_ONLY"),
                                 false_positive_notes=data.get("false_positive_notes"),
                                 references=data.get("references", []),
                             )

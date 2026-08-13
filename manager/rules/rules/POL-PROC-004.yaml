@@ -1,0 +1,26 @@
+rule_code: "POL-PROC-004"
+name: "WMIC Spawning Interactive Command Shell"
+category: "process"
+severity: "medium"
+mitre_technique_id: "T1047"
+score_impact: 30
+enabled: true
+mode: "ALERT_ONLY"
+response_action: "ALERT"
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "process"
+    - field: "data.process_name"
+      op: "contains_icase"
+      value: "wmic.exe"
+    - field: "data.command_line"
+      op: "contains_icase"
+      value: "process call create"
+    - field: "data.command_line"
+      op: "regex"
+      value: "(cmd|powershell|cscript|wscript)"
+false_positive_notes: "Remote management automation tools."
+references:
+  - "https://attack.mitre.org/techniques/T1047/"

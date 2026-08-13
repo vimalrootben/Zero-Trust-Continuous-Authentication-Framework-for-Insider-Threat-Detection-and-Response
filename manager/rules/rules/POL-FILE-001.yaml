@@ -1,0 +1,26 @@
+rule_code: "POL-FILE-001"
+name: "Ransomware High Entropy Mass File Encryption Burst"
+category: "files"
+severity: "critical"
+mitre_technique_id: "T1486"
+score_impact: 50
+enabled: true
+mode: "ENFORCE"
+response_action: "ISOLATE_HOST"
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "file"
+    - field: "data.change_type"
+      op: "in"
+      value: ["modified", "renamed"]
+    - field: "data.entropy"
+      op: "gt"
+      value: 7.5
+    - field: "data.modified_files_count"
+      op: "gt"
+      value: 20
+false_positive_notes: "Archive compression or database backup tools."
+references:
+  - "https://attack.mitre.org/techniques/T1486/"

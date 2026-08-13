@@ -72,12 +72,20 @@ export interface Rule {
 
 export interface Policy {
   id: string;
+  policy_code?: string;
   name: string;
   description?: string;
+  category?: string;
+  severity?: string;
+  risk_impact?: number;
+  mitre_technique_id?: string;
   action: string;
   condition: any;
   priority: number;
   enabled: boolean;
+  mode?: string;
+  trigger_count?: number;
+  last_triggered_at?: string;
   created_at: string;
 }
 
@@ -204,12 +212,14 @@ class ApiClient {
   }
 
   // ── Telemetry ─────────────────────────────────────────────
-  async getTelemetry(agentId?: string, eventType?: string, limit = 100): Promise<TelemetryEvent[]> {
+  async getTelemetry(agentId?: string, collectorType?: string, limit = 100): Promise<TelemetryEvent[]> {
     try {
-      let url = `/api/v1/telemetry?limit=${limit}`;
-      if (agentId) url += `&agent_id=${agentId}`;
-      if (eventType) url += `&event_type=${eventType}`;
-      const data = await this.request(url);
+      // Backend accepts: agent_id, collector_type, event_type, page, page_size
+      const params = new URLSearchParams();
+      params.set('page_size', String(Math.min(limit, 200)));
+      if (agentId) params.set('agent_id', agentId);
+      if (collectorType) params.set('collector_type', collectorType);
+      const data = await this.request(`/api/v1/telemetry?${params.toString()}`);
       if (Array.isArray(data)) return data;
       if (data?.items) return data.items;
       return [];
@@ -227,8 +237,10 @@ class ApiClient {
   // ── Audit Logs ────────────────────────────────────────────
   async getAuditLogs(search?: string): Promise<{ items: AuditLog[]; total: number }> {
     try {
-      let url = '/api/v1/audit-logs';
-      if (search) url += `?search=${encodeURIComponent(search)}`;
+      // Backend accepts: actor_id, action, actor_type, target_type, target_id, from, to, page, page_size
+      // 'search' is not a backend param — match against action or actor_type
+      let url = '/api/v1/audit-logs?page_size=100';
+      if (search) url += `&action=${encodeURIComponent(search)}`;
       const data = await this.request(url);
       if (data?.items) return { items: data.items, total: data.total ?? data.items.length };
       if (Array.isArray(data)) return { items: data, total: data.length };

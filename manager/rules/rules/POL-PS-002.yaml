@@ -1,0 +1,23 @@
+rule_code: "POL-PS-002"
+name: "PowerShell Remote Web Download Execution"
+category: "powershell"
+severity: "high"
+mitre_technique_id: "T1059.001"
+score_impact: 35
+enabled: true
+mode: "ENFORCE"
+response_action: "KILL_PROCESS"
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "process"
+    - field: "data.process_name"
+      op: "contains_icase"
+      value: "powershell.exe"
+    - field: "data.command_line"
+      op: "regex"
+      value: "(Net\\.WebClient|DownloadString|DownloadFile|Invoke-WebRequest|iwr|curl|wget)"
+false_positive_notes: "DevOps automation scripts fetching remote assets."
+references:
+  - "https://attack.mitre.org/techniques/T1059/001/"

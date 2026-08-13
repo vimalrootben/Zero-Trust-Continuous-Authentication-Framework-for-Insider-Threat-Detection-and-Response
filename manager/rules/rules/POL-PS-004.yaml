@@ -1,0 +1,23 @@
+rule_code: "POL-PS-004"
+name: "PowerShell Script Execution from User Temp Directory"
+category: "powershell"
+severity: "medium"
+mitre_technique_id: "T1059.001"
+score_impact: 30
+enabled: true
+mode: "ALERT_ONLY"
+response_action: "ALERT"
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "process"
+    - field: "data.process_name"
+      op: "contains_icase"
+      value: "powershell.exe"
+    - field: "data.command_line"
+      op: "regex"
+      value: "(appdata|temp|tmp).*\\.ps1"
+false_positive_notes: "Installer unpackers running setup scripts."
+references:
+  - "https://attack.mitre.org/techniques/T1059/001/"

@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     THREAT_INTEL_SYNC_INTERVAL_HOURS: int = 6
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=os.path.join(_BASE_DIR, ".env"),
         env_file_encoding="utf-8",
         extra="ignore"
     )
