@@ -1,0 +1,26 @@
+===============================================================================
+Zero Trust EDR Platform - Project Update & Change History Log (update.txt)
+===============================================================================
+
+[2026-08-13 17:42:00 IST] - Project Audit, CORS Fix, Detection Rules & README Update
+-------------------------------------------------------------------------------
+1. Backend & API Fixes:
+   - Fixed CORS preflight failure in `manager/api/main.py` by adding dynamic regex origin support `https?://(localhost|127\.0\.0\.1)(:\d+)?` and additional local ports (5173, 5174, 5175, 3000).
+   - Resolved HTTP 400 Bad Request preflight error when dashboard is served on non-default local ports (e.g., http://localhost:5174).
+
+2. Policy & Detection Rule Engine:
+   - Added response execution handler in `agent/responses/response_handler.py`.
+   - Implemented dynamic policy evaluation engine in `manager/policy/policy_engine.py`.
+   - Added 37+ detection and policy rules (`manager/rules/rules/POL-*.yaml`, `RULE-0009.yaml` through `RULE-0012.yaml`).
+   - Added comprehensive automated test suite `manager/tests/test_all_policies.py`.
+
+3. Database & Verification:
+   - Verified SQLite database schema (`zerotrust_edr.db`) with 25 tables (`users`, `roles`, `permissions`, `alerts`, `rules`, `agents`, `telemetry_events`, etc.).
+   - Confirmed initial seed data and superadmin login credentials (`admin` / `AdminSecure123!`).
+
+4. Documentation & Repository:
+   - Updated `README.md` with accurate repository URLs, zero-config SQLite setup instructions, dynamic CORS guidance, and clean quickstart steps.
+   - Updated `.gitignore` to ignore `.quarantine/` and `logs/`.
+   - Committed and pushed all changes to GitHub branch `main`.
+
+===============================================================================
