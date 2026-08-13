@@ -1,0 +1,26 @@
+rule_code: "RULE-0002"
+name: "PowerShell Encoded Command Execution"
+category: "execution"
+severity: "high"
+mitre_technique_id: "T1059.001"
+score_impact: 20
+enabled: true
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "process"
+    - field: "data.process_name"
+      op: "in"
+      value: ["powershell.exe", "pwsh.exe"]
+    - any:
+        - field: "data.command_line"
+          op: "contains_icase"
+          value: "-enc"
+        - field: "data.command_line"
+          op: "contains_icase"
+          value: "-encodedcommand"
+response_action: "KILL_PROCESS"
+false_positive_notes: "Legitimate deployment scripts may use encoded commands."
+references:
+  - "https://attack.mitre.org/techniques/T1059/001/"

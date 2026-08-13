@@ -1,0 +1,1 @@
+2026-08-12T16:22:25.403045+00:00 | ActorType.USER | 7260379b-33f8-4a60-bb5a-be1205f485c8 | AuditAction.LOGIN_SUCCESS | user:7260379b-33f8-4a60-bb5a-be1205f485c8 | {'ip': '127.0.0.1'} | None

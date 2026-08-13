@@ -1,0 +1,25 @@
+rule_code: "RULE-0004"
+name: "New Service Installed Pointing to Unusual Path"
+category: "persistence"
+severity: "high"
+mitre_technique_id: "T1543.003"
+score_impact: 25
+enabled: true
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "service"
+    - field: "data.change_type"
+      op: "eq"
+      value: "created"
+    - any:
+        - field: "data.path_name"
+          op: "contains_icase"
+          value: "temp"
+        - field: "data.path_name"
+          op: "contains_icase"
+          value: "appdata"
+false_positive_notes: "Some legacy software installs services in user profiles."
+references:
+  - "https://attack.mitre.org/techniques/T1543/003/"

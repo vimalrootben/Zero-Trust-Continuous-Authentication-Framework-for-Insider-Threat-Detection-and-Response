@@ -1,0 +1,18 @@
+rule_code: "RULE-0005"
+name: "Registry Run Key Modified"
+category: "persistence"
+severity: "high"
+mitre_technique_id: "T1547.001"
+score_impact: 20
+enabled: true
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "registry"
+    - field: "data.key_path"
+      op: "contains_icase"
+      value: "run"
+false_positive_notes: "Applications adding startup entries."
+references:
+  - "https://attack.mitre.org/techniques/T1547/001/"

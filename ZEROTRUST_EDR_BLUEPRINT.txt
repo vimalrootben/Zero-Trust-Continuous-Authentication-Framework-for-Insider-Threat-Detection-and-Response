@@ -1,0 +1,2231 @@
+================================================================================
+ZERO TRUST EDR — MASTER BUILD BLUEPRINT
+Zero Trust Continuous Authentication Framework for Insider Threat Detection
+and Response (Final Year Project)
+================================================================================
+
+HOW TO USE THIS FILE (READ THIS FIRST)
+--------------------------------------------------------------------------------
+This file is your single source of truth. Do NOT paste the whole file into an
+AI chat and say "build this." Instead:
+
+1. Open a NEW chat session per module.
+2. Paste: SECTION 0 (Global Rules) + the ONE module section you're building
+   (e.g. "MODULE M1: AUTHENTICATION").
+3. End your message with:
+   "Implement this module exactly as specified above. Do not invent
+   anything not defined here. If something is ambiguous, ask me before
+   writing code instead of guessing."
+4. Review the output against the "Definition of Done" checklist at the
+   bottom of that module's section before moving to the next module.
+5. Build in the ORDER given in SECTION 2 (Build Order). Do not skip ahead.
+
+Every module section is self-contained: purpose, responsibilities, data
+model, classes, method signatures, API contracts, config keys, errors,
+logging, tests, and integration points. Nothing is left to the AI's
+imagination — that's the entire point of this document.
+
+================================================================================
+SECTION 0 — GLOBAL RULES (paste this with every module prompt)
+================================================================================
+
+ROLE: You are a Senior Security Software Engineer building one module of a
+production-grade Zero Trust EDR platform (in the spirit of Wazuh / Microsoft
+Defender for Endpoint / CrowdStrike Falcon architecture, but fully original
+code).
+
+NON-NEGOTIABLE RULES:
+- Build ONLY the module specified. Do not build other modules, do not stub
+  future modules beyond a documented interface/abstract class.
+- No file over ~400 lines. Split into multiple files/classes if needed.
+- No global mutable state. No hardcoded IPs, ports, secrets, paths.
+- All config comes from a config.py (Pydantic Settings) reading env vars /
+  a .env or config.yaml file — never inline literals.
+- Every public function/method: type hints, docstring (purpose, args,
+  returns, raises), structured logging at entry/exit/error, explicit
+  try/except with custom exception classes (never bare `except:`).
+- No `print()` anywhere — use the `logging` module / structlog with JSON
+  formatting: {timestamp, module, level, message, correlation_id}.
+- Every module ships with: README.md, requirements.txt, config.py,
+  exceptions.py, tests/ (pytest, unit + integration), __init__.py.
+- SOLID principles, dependency injection (constructor injection is fine),
+  clear interfaces (ABCs / Protocols) between layers.
+- Manager NEVER reaches into an agent. Agent ALWAYS pushes data outward.
+- Manager NEVER executes raw PowerShell. It sends a signed, structured
+  Command object; the Agent validates and executes locally.
+- Passwords: bcrypt/argon2 only. Tokens: JWT with explicit alg allowlist
+  (no "alg: none"). All manager<->agent traffic: mutual TLS.
+- After implementation, output a short "Definition of Done" self-check
+  confirming each requirement in the spec was met, and list anything you
+  could NOT implement and why.
+
+TECH STACK (fixed for the whole project — do not substitute):
+- Language: Python 3.12+
+- Manager backend: FastAPI, Uvicorn/Gunicorn
+- Manager DB: PostgreSQL 15+, SQLAlchemy 2.x (async), Alembic migrations
+- Agent local cache/offline queue: SQLite (via SQLAlchemy)
+- Auth: JWT (access + refresh), RBAC, argon2-cffi for password hashing
+- Transport security: HTTPS + mutual TLS (mTLS) between Manager and Agent
+- Realtime: WebSockets (FastAPI native) for push commands/live telemetry
+- Windows automation: PowerShell (invoked via subprocess with strict
+  allowlisted, parameterized scripts — never string-concatenated commands),
+  pywin32 / WMI for native Windows APIs where PowerShell is unnecessary
+  overhead (e.g. process enumeration)
+- Dashboard: React 18 + TypeScript, TanStack Query, Zustand or Redux Toolkit
+  for state, Recharts/Chart.js for graphs, Tailwind CSS
+- Windows Service wrapper: `pywin32` (win32serviceutil) or NSSM
+- Task queue (async jobs, alert fan-out): can use FastAPI BackgroundTasks
+  for MVP, Celery + Redis if scaling is demonstrated
+- Testing: pytest, pytest-asyncio, httpx (API tests), pytest-cov
+- Containerization: Docker + docker-compose for the Manager stack
+
+================================================================================
+SECTION 1 — REPOSITORY STRUCTURE (fixed — do not deviate)
+================================================================================
+
+ZeroTrustEDR/
+├── manager/
+│   ├── api/
+│   │   ├── routers/            # one router file per resource (auth.py, agents.py, alerts.py, policies.py, commands.py, incidents.py, telemetry.py, rules.py, mitre.py, users.py)
+│   │   ├── dependencies.py     # FastAPI Depends() for auth, db session, rbac
+│   │   ├── schemas/            # Pydantic request/response models, one file per resource
+│   │   └── main.py             # FastAPI app factory
+│   ├── auth/
+│   │   ├── jwt_handler.py
+│   │   ├── password_handler.py
+│   │   ├── rbac.py
+│   │   └── models.py
+│   ├── database/
+│   │   ├── models/              # SQLAlchemy ORM models, one file per table group
+│   │   ├── session.py
+│   │   ├── base.py
+│   │   └── migrations/          # Alembic
+│   ├── threatintel/
+│   │   ├── feeds/                # one connector per feed source
+│   │   ├── ioc_matcher.py
+│   │   └── cache.py
+│   ├── risk/
+│   │   ├── risk_engine.py
+│   │   ├── scoring_rules.py
+│   │   └── decay.py
+│   ├── policy/
+│   │   ├── policy_engine.py
+│   │   ├── policy_evaluator.py
+│   │   └── policy_models.py
+│   ├── rules/
+│   │   ├── rule_engine.py
+│   │   ├── rule_loader.py
+│   │   ├── conditions.py
+│   │   └── rules/                # YAML/JSON rule definition files
+│   ├── mitre/
+│   │   ├── mitre_mapper.py
+│   │   └── attack_data/          # local copy of MITRE ATT&CK STIX/JSON
+│   ├── websocket/
+│   │   ├── connection_manager.py
+│   │   └── command_dispatcher.py
+│   ├── scheduler/
+│   │   └── heartbeat_monitor.py
+│   ├── workers/
+│   │   ├── alert_worker.py
+│   │   └── notification_worker.py
+│   ├── dashboard/                # React app (separate package.json)
+│   ├── certs/                    # CA + server certs (gitignored, generated by scripts/)
+│   └── tests/
+├── agent/
+│   ├── collectors/
+│   │   ├── process_collector.py
+│   │   ├── service_collector.py
+│   │   ├── registry_collector.py
+│   │   ├── network_collector.py
+│   │   ├── usb_collector.py
+│   │   ├── file_collector.py
+│   │   ├── log_collector.py
+│   │   ├── login_collector.py
+│   │   └── base_collector.py     # ABC all collectors implement
+│   ├── communication/
+│   │   ├── transport.py          # HTTPS/mTLS client
+│   │   ├── heartbeat.py
+│   │   ├── registration.py
+│   │   └── telemetry_sender.py
+│   ├── powershell/
+│   │   ├── ps_executor.py
+│   │   └── scripts/              # allowlisted .ps1 templates
+│   ├── responses/
+│   │   ├── response_engine.py
+│   │   ├── logoff_user.py
+│   │   ├── kill_process.py
+│   │   ├── firewall_rules.py
+│   │   ├── network_isolation.py
+│   │   ├── adapter_control.py
+│   │   ├── lock_workstation.py
+│   │   └── quarantine_file.py
+│   ├── policy/
+│   │   └── local_policy_cache.py
+│   ├── localrules/
+│   │   └── local_rule_engine.py
+│   ├── network/
+│   │   └── connectivity_monitor.py
+│   ├── selfprotection/
+│   │   ├── service_guard.py
+│   │   ├── file_integrity_guard.py
+│   │   └── tamper_logger.py
+│   ├── startup/
+│   │   └── windows_service.py
+│   ├── storage/
+│   │   ├── offline_queue.py
+│   │   └── local_db.py           # SQLite models
+│   ├── config/
+│   │   └── config.py
+│   └── tests/
+├── docs/
+├── deployment/
+│   ├── docker-compose.yml
+│   └── installer/                 # Windows agent installer (Inno Setup / MSI)
+├── scripts/                        # cert generation, DB seed, dev setup
+└── certificates/                   # root CA (dev only, gitignored in real deploy)
+
+================================================================================
+SECTION 2 — BUILD ORDER (do not skip ahead)
+================================================================================
+
+Phase 0: Repo scaffolding, docker-compose skeleton, cert generation script
+Phase 1: Database schema (all tables) + Alembic migrations
+Phase 2: Manager Authentication + RBAC (M1, M2)
+Phase 3: Manager<->Agent secure communication contract (M-COMM), Agent
+         Registration (M3 / A2), Heartbeat (M4 / A3)
+Phase 4: Agent Offline Queue (A5), Agent Configuration (A1)
+Phase 5: Collectors (A6-A12) — one at a time, starting with Process Collector
+Phase 6: Rule Engine (M8) + Local Rule Engine (A13) + MITRE Mapping (M10)
+Phase 7: Risk Engine (M7)
+Phase 8: Policy Engine (M11) + Command Dispatcher (M12) + Signed Commands
+Phase 9: PowerShell Executor (A14) + Response Engine (A15) — one action
+         at a time (logoff -> kill process -> firewall -> isolation -> ...)
+Phase 10: Self Protection (A16) + Windows Service wrapper (A17) + Installer
+Phase 11: Alert Engine (M13) + Timeline Engine (M14) + Audit Log (M16)
+Phase 12: WebSocket push (M6) tying commands + live telemetry together
+Phase 13: Dashboard pages, one at a time, in the order listed in SECTION 8
+Phase 14: Threat Intelligence (M9) integration
+Phase 15: End-to-end testing, load testing, offline/reconnect testing
+
+================================================================================
+SECTION 3 — DATABASE SCHEMA (complete — build all of this in Phase 1)
+================================================================================
+
+Use SQLAlchemy 2.x declarative models + Alembic for every table below.
+All tables: `id` = UUID primary key (server-generated), `created_at`,
+`updated_at` (timestamps, UTC, auto-managed).
+
+--- users ---
+id UUID PK
+username VARCHAR(64) UNIQUE NOT NULL
+email VARCHAR(255) UNIQUE NOT NULL
+password_hash VARCHAR(255) NOT NULL
+full_name VARCHAR(128)
+department VARCHAR(64)
+is_active BOOLEAN DEFAULT TRUE
+mfa_enabled BOOLEAN DEFAULT FALSE
+mfa_secret VARCHAR(255) NULLABLE
+last_login_at TIMESTAMP NULLABLE
+failed_login_attempts INT DEFAULT 0
+locked_until TIMESTAMP NULLABLE
+role_id UUID FK -> roles.id
+INDEX on username, email
+
+--- roles ---
+id UUID PK
+name VARCHAR(64) UNIQUE NOT NULL   -- e.g. "admin", "soc_analyst", "viewer"
+description TEXT
+
+--- permissions ---
+id UUID PK
+code VARCHAR(64) UNIQUE NOT NULL   -- e.g. "agents:read", "commands:execute", "policies:write"
+description TEXT
+
+--- role_permissions (many-to-many) ---
+role_id UUID FK -> roles.id
+permission_id UUID FK -> permissions.id
+PRIMARY KEY(role_id, permission_id)
+
+--- sessions ---
+id UUID PK
+user_id UUID FK -> users.id
+refresh_token_hash VARCHAR(255) NOT NULL
+issued_at TIMESTAMP
+expires_at TIMESTAMP
+revoked BOOLEAN DEFAULT FALSE
+user_agent VARCHAR(255)
+ip_address VARCHAR(64)
+INDEX on user_id
+
+--- agents ---
+id UUID PK
+hostname VARCHAR(128) NOT NULL
+device_fingerprint VARCHAR(255) UNIQUE NOT NULL   -- hash of hw ids
+os_version VARCHAR(64)
+agent_version VARCHAR(32)
+ip_address VARCHAR(64)
+mac_address VARCHAR(64)
+department VARCHAR(64)
+status ENUM('pending','active','offline','quarantined','decommissioned')
+enrollment_token_id UUID FK -> enrollment_tokens.id NULLABLE
+cert_fingerprint VARCHAR(255)   -- client cert bound to this agent
+last_seen_at TIMESTAMP NULLABLE
+current_risk_score INT DEFAULT 0
+policy_group_id UUID FK -> policy_groups.id NULLABLE
+INDEX on hostname, status, device_fingerprint
+
+--- enrollment_tokens ---
+id UUID PK
+token_hash VARCHAR(255) NOT NULL
+created_by UUID FK -> users.id
+expires_at TIMESTAMP
+max_uses INT DEFAULT 1
+used_count INT DEFAULT 0
+revoked BOOLEAN DEFAULT FALSE
+
+--- heartbeats ---
+id UUID PK
+agent_id UUID FK -> agents.id
+timestamp TIMESTAMP NOT NULL
+cpu_usage FLOAT
+memory_usage FLOAT
+disk_usage FLOAT
+agent_status VARCHAR(32)
+INDEX on (agent_id, timestamp)
+
+--- telemetry_events ---
+id UUID PK
+agent_id UUID FK -> agents.id
+collector_type VARCHAR(32)   -- 'process','network','registry','usb','file','service','log','login'
+event_type VARCHAR(64)
+raw_data JSONB NOT NULL
+timestamp TIMESTAMP NOT NULL
+processed BOOLEAN DEFAULT FALSE
+correlation_id UUID
+INDEX on (agent_id, timestamp), INDEX on collector_type, GIN INDEX on raw_data
+
+--- rules ---
+id UUID PK
+rule_code VARCHAR(32) UNIQUE NOT NULL   -- e.g. "RULE-0142"
+name VARCHAR(128) NOT NULL
+category VARCHAR(64)
+description TEXT
+condition_json JSONB NOT NULL           -- structured condition tree (see M8)
+severity ENUM('low','medium','high','critical')
+mitre_technique_id VARCHAR(16) FK -> mitre_techniques.technique_id NULLABLE
+response_action_id UUID FK -> response_templates.id NULLABLE
+enabled BOOLEAN DEFAULT TRUE
+false_positive_notes TEXT
+references TEXT[]
+created_by UUID FK -> users.id
+version INT DEFAULT 1
+
+--- mitre_tactics ---
+tactic_id VARCHAR(16) PK   -- e.g. "TA0002"
+name VARCHAR(64)
+description TEXT
+
+--- mitre_techniques ---
+technique_id VARCHAR(16) PK   -- e.g. "T1059.001"
+tactic_id VARCHAR(16) FK -> mitre_tactics.tactic_id
+name VARCHAR(128)
+description TEXT
+detection_notes TEXT
+data_sources TEXT[]
+
+--- risk_scores ---
+id UUID PK
+agent_id UUID FK -> agents.id
+score INT NOT NULL
+delta INT NOT NULL
+reason VARCHAR(255)
+rule_id UUID FK -> rules.id NULLABLE
+timestamp TIMESTAMP
+INDEX on (agent_id, timestamp)
+
+--- policies ---
+id UUID PK
+name VARCHAR(128)
+description TEXT
+condition_json JSONB NOT NULL     -- e.g. {"risk_gt":80,"department_ne":"IT"}
+actions_json JSONB NOT NULL       -- ordered list of actions: ["LOGOFF_USER","DISABLE_NETWORK","NOTIFY_SOC","CREATE_INCIDENT"]
+priority INT DEFAULT 100
+enabled BOOLEAN DEFAULT TRUE
+policy_group_id UUID FK -> policy_groups.id NULLABLE
+created_by UUID FK -> users.id
+
+--- policy_groups ---
+id UUID PK
+name VARCHAR(128)
+description TEXT
+
+--- commands ---
+id UUID PK
+agent_id UUID FK -> agents.id
+command_type VARCHAR(64)   -- 'LOGOFF_USER','KILL_PROCESS','DISABLE_NETWORK', etc.
+payload_json JSONB
+issued_by UUID FK -> users.id NULLABLE   -- null if system/policy-issued
+policy_id UUID FK -> policies.id NULLABLE
+signature TEXT NOT NULL
+status ENUM('pending','sent','acknowledged','executing','success','failed','expired')
+issued_at TIMESTAMP
+executed_at TIMESTAMP NULLABLE
+result_json JSONB NULLABLE
+INDEX on (agent_id, status)
+
+--- alerts ---
+id UUID PK
+agent_id UUID FK -> agents.id
+rule_id UUID FK -> rules.id NULLABLE
+telemetry_event_id UUID FK -> telemetry_events.id NULLABLE
+title VARCHAR(255)
+description TEXT
+severity ENUM('low','medium','high','critical')
+mitre_technique_id VARCHAR(16) FK -> mitre_techniques.technique_id NULLABLE
+status ENUM('open','acknowledged','investigating','resolved','false_positive')
+assigned_to UUID FK -> users.id NULLABLE
+created_at TIMESTAMP
+resolved_at TIMESTAMP NULLABLE
+INDEX on (agent_id, status, severity)
+
+--- incidents ---
+id UUID PK
+title VARCHAR(255)
+description TEXT
+severity ENUM('low','medium','high','critical')
+status ENUM('open','contained','resolved','closed')
+agent_ids UUID[]         -- affected agents
+alert_ids UUID[]         -- linked alerts
+created_by VARCHAR(32)   -- 'system' or user id
+assigned_to UUID FK -> users.id NULLABLE
+created_at TIMESTAMP
+closed_at TIMESTAMP NULLABLE
+
+--- timeline_events ---
+id UUID PK
+agent_id UUID FK -> agents.id NULLABLE
+incident_id UUID FK -> incidents.id NULLABLE
+event_source VARCHAR(64)   -- 'telemetry','alert','command','policy','user_action'
+event_ref_id UUID NULLABLE
+description TEXT
+timestamp TIMESTAMP
+INDEX on (agent_id, timestamp), INDEX on (incident_id, timestamp)
+
+--- threat_intel_indicators ---
+id UUID PK
+ioc_type ENUM('ip','domain','hash_sha256','hash_md5','url')
+value VARCHAR(512) NOT NULL
+source VARCHAR(64)
+confidence INT
+first_seen TIMESTAMP
+last_seen TIMESTAMP
+tags TEXT[]
+UNIQUE(ioc_type, value)
+
+--- response_templates ---
+id UUID PK
+name VARCHAR(128)
+action_type VARCHAR(64)
+default_params_json JSONB
+
+--- offline_sync_log ---
+id UUID PK
+agent_id UUID FK -> agents.id
+batch_id UUID
+events_count INT
+synced_at TIMESTAMP
+status ENUM('success','partial','failed')
+
+--- audit_logs ---
+id UUID PK
+actor_type ENUM('user','agent','system')
+actor_id UUID NULLABLE
+action VARCHAR(128)
+target_type VARCHAR(64)
+target_id UUID NULLABLE
+details_json JSONB
+ip_address VARCHAR(64)
+timestamp TIMESTAMP
+INDEX on (actor_id, timestamp), INDEX on action
+
+Relationships summary:
+users 1--N sessions; users N--1 roles; roles N--N permissions
+agents 1--N heartbeats, telemetry_events, risk_scores, commands, alerts
+rules N--1 mitre_techniques; rules 1--N alerts
+policies N--1 policy_groups; agents N--1 policy_groups
+incidents N--N alerts (via alert_ids array, or normalize to a join table
+  `incident_alerts` if you want referential integrity — RECOMMENDED over
+  the array column; use the join table in the actual implementation)
+
+================================================================================
+SECTION 4 — MANAGER <-> AGENT COMMUNICATION CONTRACT (build in Phase 3)
+================================================================================
+
+MODULE: M-COMM — Communication Protocol Specification
+--------------------------------------------------------------------------------
+PURPOSE: Define the exact wire format so Manager and Agent modules built in
+separate sessions are still compatible.
+
+TRANSPORT: HTTPS (TLS 1.2+) with mutual TLS. Each agent has a unique client
+certificate issued at enrollment. Manager verifies the client cert chain
+against its own CA on every request, in addition to any JWT service token.
+
+ENDPOINTS (Agent -> Manager, agent-initiated only, never the reverse for
+data collection):
+  POST /agent/register            -> enrollment
+  POST /agent/heartbeat           -> periodic liveness + resource stats
+  POST /agent/telemetry           -> batched telemetry push
+  POST /agent/commands/ack        -> acknowledge receipt of a command
+  POST /agent/commands/result     -> report execution result
+  GET  /agent/commands/pending    -> poll fallback if WebSocket unavailable
+  WS   /agent/ws                  -> persistent channel for low-latency
+                                      command push (preferred over polling)
+
+REGISTRATION PAYLOAD:
+{
+  "enrollment_token": "string",
+  "hostname": "string",
+  "os_version": "string",
+  "agent_version": "string",
+  "hardware_fingerprint": "string",   -- sha256 of stable HW identifiers
+  "public_key_csr": "base64 PEM CSR"  -- agent generates keypair locally,
+                                          manager's CA signs and returns cert
+}
+REGISTRATION RESPONSE:
+{
+  "agent_id": "uuid",
+  "signed_certificate": "base64 PEM",
+  "ca_certificate": "base64 PEM",
+  "initial_policy_group": "uuid",
+  "heartbeat_interval_seconds": 30
+}
+
+HEARTBEAT PAYLOAD:
+{ "agent_id": "uuid", "timestamp": "ISO8601", "cpu_usage": float,
+  "memory_usage": float, "disk_usage": float, "status": "active" }
+
+TELEMETRY BATCH PAYLOAD:
+{ "agent_id": "uuid", "batch_id": "uuid",
+  "events": [ { "collector_type": "process", "event_type": "process_start",
+                "timestamp": "ISO8601", "data": { ... collector-specific ... } } ] }
+Response: { "accepted": int, "rejected": int, "batch_id": "uuid" }
+
+SIGNED COMMAND OBJECT (Manager -> Agent, via WebSocket push or poll):
+{
+  "command_id": "uuid",
+  "command_type": "LOGOFF_USER | KILL_PROCESS | DISABLE_NETWORK |
+                    ENABLE_NETWORK | DISABLE_ADAPTER | ENABLE_ADAPTER |
+                    LOCK_WORKSTATION | ADD_FIREWALL_RULE |
+                    REMOVE_FIREWALL_RULE | RESTRICT_RESOURCE |
+                    QUARANTINE_FILE | RESTORE_FILE | CREATE_SCHEDULED_TASK |
+                    DELETE_SCHEDULED_TASK | STOP_SERVICE | START_SERVICE",
+  "agent_id": "uuid",
+  "policy_id": "uuid|null",
+  "issued_by": "uuid|null",
+  "params": { ...command-specific... },
+  "issued_at": "ISO8601",
+  "expires_at": "ISO8601",
+  "signature": "base64 HMAC-SHA256 or RSA signature over the canonical
+                JSON of all fields above except signature itself"
+}
+Agent MUST: verify signature using the manager's known public key,
+verify `expires_at` has not passed (replay protection), verify
+`agent_id` matches itself, THEN execute, THEN POST the result to
+/agent/commands/result:
+{ "command_id": "uuid", "status": "success|failed",
+  "output": "string", "error": "string|null", "executed_at": "ISO8601" }
+
+REPLAY / TAMPER PROTECTION: every command carries a strictly increasing
+`nonce` OR is single-use (agent keeps a local set of executed command_ids
+for the last 24h and rejects duplicates). Clock skew tolerance: 60s.
+
+OFFLINE BEHAVIOR: if the agent cannot reach the manager, telemetry events
+queue in the local SQLite offline queue (see A5). Heartbeats simply fail
+silently and retry with exponential backoff (base 5s, cap 5min, jitter).
+On reconnect, agent flushes the offline queue in batches of N (configurable,
+default 100) and logs the sync in `offline_sync_log` (server-side, created
+from the batch's `batch_id`).
+
+================================================================================
+SECTION 5 — MANAGER MODULES
+================================================================================
+
+--------------------------------------------------------------------------------
+MODULE M1: AUTHENTICATION
+--------------------------------------------------------------------------------
+PURPOSE: Handle user identity — registration (admin-created, no public
+self-signup for an EDR console), login, logout, token refresh, password
+management, optional TOTP MFA, account lockout.
+
+RESPONSIBILITIES:
+- Hash and verify passwords (argon2).
+- Issue short-lived JWT access tokens (15 min) and long-lived opaque
+  refresh tokens (7 days, rotated on each use, stored hashed in `sessions`).
+- Enforce account lockout after N failed attempts (default 5, 15 min lock).
+- Optional TOTP-based MFA (pyotp), enforced per-user via `mfa_enabled`.
+- Emit audit_log entries for login success/failure/logout/lockout.
+
+DEPENDENCIES: database (users, sessions tables), auth/rbac.py (to embed
+role/permissions into the JWT claims), audit log writer.
+
+DATA MODELS (Pydantic schemas, api/schemas/auth.py):
+- LoginRequest { username: str, password: str, totp_code: str | None }
+- LoginResponse { access_token: str, refresh_token: str, token_type: "bearer",
+                   expires_in: int, user: UserPublic }
+- RefreshRequest { refresh_token: str }
+- RefreshResponse { access_token: str, refresh_token: str, expires_in: int }
+- ChangePasswordRequest { old_password: str, new_password: str }
+- UserPublic { id: UUID, username: str, email: str, role: str,
+                department: str | None, mfa_enabled: bool }
+
+CLASSES & METHODS:
+
+class PasswordHandler:
+    def hash_password(self, plain: str) -> str: ...
+        """Hash using argon2id. Raises WeakPasswordError if policy fails
+        (min 12 chars, upper+lower+digit+symbol)."""
+    def verify_password(self, plain: str, hashed: str) -> bool: ...
+
+class JWTHandler:
+    def __init__(self, secret_or_private_key: str, algorithm: str = "RS256",
+                 access_ttl_minutes: int = 15, refresh_ttl_days: int = 7): ...
+    def create_access_token(self, user_id: UUID, role: str,
+                             permissions: list[str]) -> str: ...
+    def create_refresh_token(self) -> tuple[str, str]:
+        """Returns (raw_token, sha256_hash_to_store)."""
+    def decode_access_token(self, token: str) -> TokenPayload:
+        """Raises ExpiredTokenError, InvalidTokenError."""
+    def verify_refresh_token(self, raw_token: str, stored_hash: str) -> bool: ...
+
+class AuthService:
+    def __init__(self, db_session, password_handler: PasswordHandler,
+                 jwt_handler: JWTHandler, audit_logger): ...
+    async def login(self, username: str, password: str,
+                     totp_code: str | None, ip: str, user_agent: str
+                     ) -> LoginResponse:
+        """
+        Flow: fetch user -> check is_active -> check locked_until ->
+        verify password (on fail: increment failed_login_attempts, lock
+        if threshold hit, audit log, raise InvalidCredentialsError) ->
+        if mfa_enabled: verify totp_code (raise MFARequiredError /
+        InvalidMFACodeError) -> reset failed_login_attempts -> create
+        session row -> issue tokens -> audit log success -> return.
+        """
+    async def refresh(self, raw_refresh_token: str) -> RefreshResponse:
+        """Look up session by hash, verify not revoked/expired, rotate:
+        revoke old session, create new session + new tokens (refresh
+        token rotation prevents replay). Raise InvalidRefreshTokenError
+        if not found/revoked/expired."""
+    async def logout(self, raw_refresh_token: str) -> None:
+        """Revoke the session row."""
+    async def change_password(self, user_id: UUID, old_password: str,
+                               new_password: str) -> None: ...
+    async def enable_mfa(self, user_id: UUID) -> str:
+        """Generates TOTP secret, stores it, returns provisioning URI
+        for QR code display."""
+    async def confirm_mfa(self, user_id: UUID, totp_code: str) -> None:
+        """Verifies first code before flipping mfa_enabled = True."""
+
+EXCEPTIONS (exceptions.py):
+InvalidCredentialsError, AccountLockedError, AccountInactiveError,
+MFARequiredError, InvalidMFACodeError, InvalidRefreshTokenError,
+ExpiredTokenError, InvalidTokenError, WeakPasswordError
+
+API ENDPOINTS (api/routers/auth.py):
+POST /api/v1/auth/login          -> LoginRequest -> LoginResponse (200) |
+                                      401 (bad creds/locked) | 403 (inactive)
+POST /api/v1/auth/refresh        -> RefreshRequest -> RefreshResponse (200) |
+                                      401
+POST /api/v1/auth/logout         -> RefreshRequest -> 204
+POST /api/v1/auth/change-password (auth required) -> 204 | 400 | 401
+POST /api/v1/auth/mfa/enable     (auth required) -> { provisioning_uri, secret }
+POST /api/v1/auth/mfa/confirm    (auth required) -> { totp_code } -> 204
+GET  /api/v1/auth/me             (auth required) -> UserPublic
+
+RATE LIMITING: /login limited to 10 req/min per IP (slowapi or custom
+middleware). Return 429 on breach.
+
+LOGGING EVENTS: auth.login.success, auth.login.failed, auth.login.locked,
+auth.logout, auth.token.refreshed, auth.token.invalid, auth.password.changed,
+auth.mfa.enabled — each with user_id (if known), ip, correlation_id.
+
+TESTS (tests/test_auth.py + test_jwt_handler.py + test_password_handler.py):
+- valid login returns tokens; wrong password increments failed_login_attempts
+- 5th failed attempt locks account for 15 min; login during lock -> 403
+- login with mfa_enabled and no/incorrect totp_code fails appropriately
+- refresh token rotates (old one no longer works after use)
+- expired access token rejected by decode_access_token
+- password policy rejects weak passwords
+- logout revokes session; refresh after logout fails
+
+INTEGRATION POINTS: RBAC module reads `role` + `permissions` claims from
+the JWT (M2). Every other protected router depends on
+`api/dependencies.py::get_current_user` which calls JWTHandler.decode_access_token.
+
+DEFINITION OF DONE:
+[ ] All classes/methods above implemented with exact signatures
+[ ] All exceptions implemented and raised in the right places
+[ ] All endpoints implemented with correct status codes
+[ ] Rate limiting on /login
+[ ] MFA flow (enable + confirm + enforce on login) working
+[ ] Refresh token rotation verified by test
+[ ] All tests above passing
+[ ] README.md explaining token lifecycle with a sequence diagram (ASCII
+    is fine)
+
+--------------------------------------------------------------------------------
+MODULE M2: RBAC (Role-Based Access Control)
+--------------------------------------------------------------------------------
+PURPOSE: Gate every API endpoint behind fine-grained permissions, not just
+"logged in."
+
+DEFAULT ROLES & PERMISSIONS (seed data):
+- admin: all permissions (*)
+- soc_analyst: agents:read, alerts:read, alerts:write, incidents:read,
+  incidents:write, commands:execute, telemetry:read, policies:read,
+  rules:read
+- viewer: agents:read, alerts:read, incidents:read, telemetry:read,
+  policies:read, rules:read
+
+CLASSES & METHODS:
+
+class RBACService:
+    def __init__(self, db_session): ...
+    async def get_permissions_for_role(self, role_id: UUID) -> list[str]: ...
+    async def user_has_permission(self, user_id: UUID, permission_code: str
+                                    ) -> bool: ...
+    async def assign_role(self, user_id: UUID, role_id: UUID,
+                            actor_id: UUID) -> None:
+        """Admin-only. Writes an audit_log entry."""
+    async def create_role(self, name: str, description: str,
+                            permission_codes: list[str]) -> Role: ...
+
+FASTAPI DEPENDENCY:
+def require_permission(permission_code: str):
+    """Returns a Depends()-compatible callable. Decodes JWT (via M1),
+    checks `permission_code` is in the token's embedded permissions list
+    OR re-checks against DB if `force_db_check` config flag is set (use
+    embedded claims by default for performance; DB check is for revocation
+    edge cases). Raises HTTPException(403) if missing."""
+
+USAGE EXAMPLE (how routers use it — document this, don't just say it):
+    @router.post("/policies", dependencies=[Depends(require_permission("policies:write"))])
+
+EXCEPTIONS: PermissionDeniedError, RoleNotFoundError
+
+API ENDPOINTS:
+GET    /api/v1/roles                     (permission: roles:read)
+POST   /api/v1/roles                     (permission: roles:write, admin only)
+GET    /api/v1/permissions               (permission: roles:read)
+PUT    /api/v1/users/{id}/role           (permission: users:write, admin only)
+
+LOGGING: rbac.permission.denied (user_id, permission_code, endpoint),
+rbac.role.assigned
+
+TESTS: soc_analyst cannot POST /policies (403); admin can; viewer cannot
+POST /commands; permission check reflects a role change immediately after
+re-login (embedded-claims caveat should be documented and tested: old
+tokens keep old permissions until they expire — this is a KNOWN, DOCUMENTED
+tradeoff, not a bug).
+
+DEFINITION OF DONE:
+[ ] Roles/permissions seeded via Alembic data migration or a seed script
+[ ] require_permission() dependency implemented and used consistently
+[ ] Role assignment audit-logged
+[ ] Tests above passing
+
+--------------------------------------------------------------------------------
+MODULE M3: AGENT REGISTRATION (Manager side)
+--------------------------------------------------------------------------------
+PURPOSE: Securely onboard a new Windows endpoint agent using a one-time
+enrollment token, issue it a client certificate, and create its `agents`
+row. See SECTION 4 for the wire contract this module implements server-side.
+
+RESPONSIBILITIES:
+- Admin generates enrollment tokens (single-use or limited-use, expiring).
+- Validate incoming registration requests against a valid, unexpired,
+  not-yet-exhausted token.
+- Sign the agent's CSR using the Manager's private CA (a real local CA for
+  the project — generate with the scripts/generate_ca.sh script, do NOT use
+  a public CA).
+- Create/​update the `agents` row, bind cert fingerprint, assign to default
+  `policy_group_id`.
+- Detect and reject duplicate hardware_fingerprint re-registration unless
+  explicitly re-enrolled by an admin (prevents silent duplicate agents).
+
+CLASSES & METHODS:
+
+class CertificateAuthority:
+    def __init__(self, ca_cert_path: str, ca_key_path: str): ...
+    def sign_csr(self, csr_pem: str, common_name: str,
+                  valid_days: int = 365) -> str:
+        """Returns signed cert PEM. Raises InvalidCSRError."""
+    def revoke_certificate(self, cert_fingerprint: str) -> None:
+        """Adds to a CRL file/table; agent's future mTLS handshakes fail."""
+
+class EnrollmentTokenService:
+    async def generate_token(self, created_by: UUID, expires_in_hours: int,
+                               max_uses: int = 1) -> str:
+        """Returns the raw token (shown once); stores only its hash."""
+    async def validate_and_consume(self, raw_token: str) -> EnrollmentToken:
+        """Raises TokenExpiredError, TokenExhaustedError, TokenRevokedError,
+        TokenNotFoundError. Increments used_count atomically."""
+
+class AgentRegistrationService:
+    def __init__(self, db_session, ca: CertificateAuthority,
+                  token_service: EnrollmentTokenService): ...
+    async def register_agent(self, payload: RegistrationRequest
+                               ) -> RegistrationResponse:
+        """
+        Flow: validate_and_consume(token) -> check hardware_fingerprint
+        not already bound to an active agent (else DuplicateAgentError) ->
+        sign CSR -> create agents row (status='active') -> return cert +
+        agent_id + default policy_group + heartbeat_interval.
+        """
+    async def decommission_agent(self, agent_id: UUID, actor_id: UUID
+                                   ) -> None:
+        """Revokes cert, sets status='decommissioned', audit logs."""
+
+API ENDPOINTS:
+POST /api/v1/enrollment-tokens        (permission: agents:write, admin)
+                                        -> { token, expires_at }
+POST /agent/register                  (mTLS not yet established — this is
+                                        the ONE unauthenticated-by-cert
+                                        endpoint, protected only by the
+                                        enrollment token + rate limiting)
+DELETE /api/v1/agents/{id}            (permission: agents:write) -> decommission
+GET  /api/v1/agents                   (permission: agents:read) -> paginated list
+GET  /api/v1/agents/{id}              (permission: agents:read)
+
+EXCEPTIONS: TokenExpiredError, TokenExhaustedError, TokenRevokedError,
+TokenNotFoundError, DuplicateAgentError, InvalidCSRError
+
+LOGGING: agent.registration.success, agent.registration.rejected (with
+reason), agent.decommissioned
+
+TESTS: expired token rejected; token max_uses enforced; duplicate hardware
+fingerprint rejected; successful registration returns a cert that validates
+against the CA; decommissioned agent's cert appears on CRL / fails
+subsequent mTLS handshake (integration test against the actual TLS layer,
+not mocked).
+
+DEFINITION OF DONE:
+[ ] CA generation script produces a working root + intermediate (or root
+    only for MVP) cert
+[ ] Enrollment token lifecycle fully implemented
+[ ] Registration endpoint enforces one-time-use correctly under concurrent
+    requests (use a DB-level atomic UPDATE ... WHERE used_count < max_uses)
+[ ] Decommission revokes and is enforced at the TLS layer, not just a DB flag
+
+--------------------------------------------------------------------------------
+MODULE M4: HEARTBEAT MONITOR (Manager side)
+--------------------------------------------------------------------------------
+PURPOSE: Track agent liveness; flag agents "offline" if no heartbeat within
+a grace period; feed into dashboard's endpoint status view.
+
+CLASSES & METHODS:
+
+class HeartbeatService:
+    async def record_heartbeat(self, agent_id: UUID, cpu: float,
+                                 memory: float, disk: float,
+                                 status: str) -> None:
+        """Inserts into heartbeats table, updates agents.last_seen_at and
+        agents.status = 'active'."""
+
+class HeartbeatMonitor:  # scheduler/heartbeat_monitor.py — runs as a
+                          # background task (APScheduler or asyncio loop)
+    def __init__(self, db_session, offline_threshold_seconds: int,
+                  alert_service): ...
+    async def check_stale_agents(self) -> None:
+        """Runs every N seconds (configurable). Finds agents where
+        last_seen_at < now - offline_threshold. Sets status='offline'.
+        Creates a low-severity alert 'Agent went offline' if it just
+        transitioned from active->offline (avoid duplicate alerts —
+        check previous status first)."""
+
+API ENDPOINTS:
+POST /agent/heartbeat   (mTLS + agent-scoped auth) -> 204
+GET  /api/v1/agents/{id}/heartbeats?from&to  (permission: agents:read)
+                                        -> paginated heartbeat history (for
+                                        CPU/mem graphs on dashboard)
+
+CONFIG: HEARTBEAT_INTERVAL_SECONDS (default 30), OFFLINE_THRESHOLD_SECONDS
+(default 90, i.e. 3 missed beats), MONITOR_CHECK_INTERVAL_SECONDS (default 15)
+
+LOGGING: heartbeat.received, agent.status.offline, agent.status.active
+(on recovery)
+
+TESTS: agent not heartbeating for > threshold flips to offline and creates
+exactly one alert; recovery flips back to active; heartbeat history query
+returns correct pagination/time-range filtering.
+
+--------------------------------------------------------------------------------
+MODULE M5: REST API (aggregation module — glue, not new logic)
+--------------------------------------------------------------------------------
+PURPOSE: This is the FastAPI app assembly module — mounts every router
+built in other modules, sets up CORS, global exception handlers, request
+ID / correlation ID middleware, OpenAPI docs.
+
+RESPONSIBILITIES:
+- api/main.py: app factory `create_app()` that includes all routers with
+  their prefixes and tags.
+- Global exception handler mapping custom exceptions -> correct HTTP status
+  + a consistent error envelope: { "error": { "code": str, "message": str,
+  "correlation_id": str } }
+- Middleware: correlation ID generation (or passthrough of X-Request-ID),
+  structured request/response logging, CORS (restricted to the dashboard's
+  origin, not "*").
+- Global pagination helper (limit/offset or cursor-based — pick one and
+  use it everywhere consistently; recommend cursor-based for
+  telemetry_events given volume).
+- Health check endpoints: GET /healthz (liveness), GET /readyz (DB
+  connectivity check).
+
+ENDPOINT INVENTORY (full list — every endpoint across every module, so you
+have the complete API surface in one place):
+  Auth:          POST /auth/login, /auth/refresh, /auth/logout,
+                 /auth/change-password, /auth/mfa/enable, /auth/mfa/confirm,
+                 GET /auth/me
+  RBAC:          GET/POST /roles, GET /permissions, PUT /users/{id}/role
+  Agents:        POST /enrollment-tokens, POST /agent/register (agent-facing),
+                 GET /agents, GET /agents/{id}, DELETE /agents/{id},
+                 GET /agents/{id}/heartbeats
+  Telemetry:     POST /agent/telemetry (agent-facing), GET /telemetry,
+                 GET /agents/{id}/telemetry
+  Rules:         GET/POST/PUT/DELETE /rules, GET /rules/{id}
+  MITRE:         GET /mitre/tactics, GET /mitre/techniques,
+                 GET /mitre/techniques/{id}
+  Risk:          GET /agents/{id}/risk-score, GET /agents/{id}/risk-history
+  Policies:      GET/POST/PUT/DELETE /policies, GET/POST /policy-groups
+  Commands:      POST /commands, GET /commands/{id},
+                 GET /agents/{id}/commands, POST /agent/commands/ack
+                 (agent-facing), POST /agent/commands/result (agent-facing),
+                 GET /agent/commands/pending (agent-facing)
+  Alerts:        GET /alerts, GET /alerts/{id}, PUT /alerts/{id}
+                 (status/assignment)
+  Incidents:     GET/POST /incidents, GET/PUT /incidents/{id}
+  Timeline:      GET /agents/{id}/timeline, GET /incidents/{id}/timeline
+  Threat Intel:  GET/POST /threat-intel/indicators, POST
+                 /threat-intel/feeds/sync
+  Audit:         GET /audit-logs (admin only)
+  Users:         GET/POST /users, GET/PUT /users/{id}
+
+DEFINITION OF DONE:
+[ ] Every router from every module mounted with correct prefix/tags
+[ ] Global exception handler covers every custom exception class defined
+    across all modules (maintain a central exceptions registry or import
+    map)
+[ ] Correlation ID present in every log line and every error response
+[ ] /healthz and /readyz implemented
+[ ] OpenAPI docs (/docs) render cleanly with all schemas
+
+--------------------------------------------------------------------------------
+MODULE M6: WEBSOCKET (Command push + live telemetry)
+--------------------------------------------------------------------------------
+PURPOSE: Low-latency channel for pushing signed commands to connected
+agents, and for pushing live alerts/telemetry to the connected dashboard
+sessions.
+
+CLASSES & METHODS:
+
+class ConnectionManager:
+    def __init__(self): ...
+        """Maintains two registries: agent_id -> WebSocket, and
+        user_id -> set[WebSocket] (a user may have multiple dashboard tabs
+        open)."""
+    async def connect_agent(self, agent_id: UUID, websocket: WebSocket) -> None: ...
+    async def connect_dashboard(self, user_id: UUID, websocket: WebSocket) -> None: ...
+    def disconnect_agent(self, agent_id: UUID) -> None: ...
+    def disconnect_dashboard(self, user_id: UUID, websocket: WebSocket) -> None: ...
+    async def send_command_to_agent(self, agent_id: UUID,
+                                      command: SignedCommand) -> bool:
+        """Returns False if agent not connected (caller should fall back
+        to queuing the command for the agent's next poll via
+        GET /agent/commands/pending)."""
+    async def broadcast_alert_to_dashboards(self, alert: AlertPublic) -> None: ...
+    async def broadcast_telemetry_update(self, agent_id: UUID,
+                                           summary: dict) -> None: ...
+
+class CommandDispatcher:  # ties Policy/Risk Engine output to delivery
+    def __init__(self, connection_manager: ConnectionManager, db_session): ...
+    async def dispatch(self, command: SignedCommand) -> None:
+        """Persists command row (status='pending') -> tries WebSocket push
+        -> on success, status='sent' -> on failure, leaves 'pending' for
+        the agent's poll endpoint to pick up."""
+
+WEBSOCKET ENDPOINTS:
+WS /agent/ws?agent_id=...     (mTLS required at the TLS layer; on connect,
+                                agent authenticates via its client cert;
+                                server pushes any 'pending' commands
+                                immediately on connect)
+WS /dashboard/ws              (JWT passed as a query param or first message;
+                                pushes alert/incident/telemetry-summary
+                                events to that user's session)
+
+MESSAGE ENVELOPE (both directions):
+{ "type": "command | ack | result | alert | telemetry_summary | ping",
+  "payload": { ... } }
+
+RECONNECT HANDLING: exponential backoff on the agent side (see A4);
+server-side, a disconnected agent's connection entry is simply removed —
+no special server state needed since commands persist in the DB regardless.
+
+LOGGING: ws.agent.connected, ws.agent.disconnected, ws.command.pushed,
+ws.command.push_failed_queued, ws.dashboard.connected
+
+TESTS: command pushed to a connected agent is received; command to a
+disconnected agent stays 'pending' and is retrievable via poll endpoint;
+dashboard receives a broadcast alert within the test's async event loop;
+reconnecting agent immediately receives queued pending commands.
+
+--------------------------------------------------------------------------------
+MODULE M7: RISK ENGINE
+--------------------------------------------------------------------------------
+PURPOSE: Maintain a continuously updated "trust score" per agent (0-100,
+where higher = riskier, or invert if you prefer — BE CONSISTENT, this spec
+uses higher = riskier), driven by rule matches, with decay over time for
+good behavior (Zero Trust "continuous" scoring, not a one-time check).
+
+RESPONSIBILITIES:
+- On every rule match (from M8), apply a score delta.
+- Periodically decay scores toward baseline for agents with no recent
+  negative events (rewards good behavior, prevents permanent flagging).
+- Expose current score + history per agent.
+- Trigger Policy Engine evaluation whenever a score changes (M11).
+
+SCORING TABLE (seed data — starting point, extend via rules, not hardcoding
+in the engine itself — the engine reads deltas from `rules.condition_json`
+or a dedicated `score_impact` field on the rule, NOT from if/else in code):
+  USB device inserted:              +10
+  PowerShell execution (unsigned):  +20
+  Unknown/unsigned binary executed: +15
+  Credential dumping tool detected: +40
+  Failed login threshold exceeded:  +15
+  Off-hours access to sensitive resource: +20
+  Known-bad IOC match (threat intel): +35
+  Lateral movement pattern detected: +30
+  Baseline decay (no negative event in 24h): -5 (floor at 0)
+
+CLASSES & METHODS:
+
+class RiskEngine:
+    def __init__(self, db_session, policy_engine): ...
+    async def apply_delta(self, agent_id: UUID, delta: int, reason: str,
+                            rule_id: UUID | None) -> int:
+        """Inserts a risk_scores row, updates agents.current_risk_score
+        (clamped 0-100), triggers policy_engine.evaluate(agent_id) if the
+        score crossed a policy threshold (compare before/after), returns
+        new score."""
+    async def get_current_score(self, agent_id: UUID) -> int: ...
+    async def get_score_history(self, agent_id: UUID, since: datetime
+                                  ) -> list[RiskScoreEntry]: ...
+
+class DecayWorker:  # scheduler job, runs e.g. every hour
+    async def run_decay_pass(self) -> None:
+        """For every agent with current_risk_score > 0 and no risk_scores
+        row in the last DECAY_GRACE_HOURS, apply the decay delta via
+        RiskEngine.apply_delta(reason='baseline_decay')."""
+
+RISK LEVELS (derived, not stored — a property/computed field):
+  0-29: LOW, 30-59: MEDIUM, 60-84: HIGH, 85-100: CRITICAL
+
+API ENDPOINTS:
+GET /api/v1/agents/{id}/risk-score      -> { score, level }
+GET /api/v1/agents/{id}/risk-history?since=  -> list[RiskScoreEntry]
+
+CONFIG: DECAY_GRACE_HOURS (default 24), DECAY_AMOUNT (default 5),
+DECAY_INTERVAL_MINUTES (default 60), SCORE_MAX (100), SCORE_MIN (0)
+
+LOGGING: risk.score.updated (agent_id, old_score, new_score, delta, reason)
+
+TESTS: applying a delta clamps at 0/100; score history returns in
+chronological order; decay worker doesn't decay an agent that had a recent
+event; decay worker doesn't decay below 0; crossing a policy threshold
+triggers a policy evaluation call (mock policy_engine and assert called
+with correct agent_id).
+
+--------------------------------------------------------------------------------
+MODULE M8: RULE ENGINE
+--------------------------------------------------------------------------------
+PURPOSE: Evaluate incoming telemetry_events against a configurable
+condition tree — NOT hardcoded if/else — producing alerts + risk deltas +
+MITRE mappings when a rule matches.
+
+RULE DEFINITION FORMAT (JSON/YAML — stored in `rules.condition_json`,
+authorable via dashboard or file, loaded by rule_loader.py):
+{
+  "rule_code": "RULE-0142",
+  "name": "Suspicious PowerShell Encoded Command",
+  "category": "execution",
+  "severity": "high",
+  "mitre_technique_id": "T1059.001",
+  "score_impact": 20,
+  "condition": {
+    "all": [
+      { "field": "collector_type", "op": "eq", "value": "process" },
+      { "field": "data.process_name", "op": "in",
+        "value": ["powershell.exe", "pwsh.exe"] },
+      { "any": [
+          { "field": "data.command_line", "op": "contains_icase",
+            "value": "-enc" },
+          { "field": "data.command_line", "op": "contains_icase",
+            "value": "-encodedcommand" }
+      ]}
+    ]
+  },
+  "response_action": "KILL_PROCESS",
+  "false_positive_notes": "Some legitimate deployment scripts use -enc;
+    tune by excluding signed scripts from trusted publishers.",
+  "references": ["https://attack.mitre.org/techniques/T1059/001/"]
+}
+
+SUPPORTED OPERATORS (conditions.py): eq, ne, gt, gte, lt, lte, in,
+not_in, contains, contains_icase, regex, exists, not_exists. Combinators:
+"all" (AND), "any" (OR), "not".
+
+CLASSES & METHODS:
+
+class ConditionEvaluator:
+    def evaluate(self, condition: dict, event_data: dict) -> bool:
+        """Recursively evaluates the condition tree above against a
+        flattened telemetry event dict. Raises InvalidConditionError for
+        malformed trees (fail loud at rule load time via rule_loader
+        validation, not silently at eval time)."""
+
+class RuleLoader:
+    def load_rules_from_db(self, db_session) -> list[Rule]: ...
+    def load_rules_from_files(self, directory: str) -> list[Rule]:
+        """For bootstrapping the initial 15-30 sample rules from
+        rules/rules/*.yaml before a dashboard rule editor exists."""
+    def validate_rule(self, rule_dict: dict) -> None:
+        """Raises InvalidRuleError with specifics if condition tree is
+        malformed, mitre_technique_id doesn't exist, etc."""
+
+class RuleEngine:
+    def __init__(self, db_session, rule_loader: RuleLoader,
+                  evaluator: ConditionEvaluator, risk_engine: RiskEngine,
+                  alert_service, mitre_mapper): ...
+    async def evaluate_event(self, event: TelemetryEvent) -> list[Alert]:
+        """For every enabled rule (cached in-memory, refreshed on a TTL
+        or on explicit rule-change event), run evaluator.evaluate(). On
+        match: create alert (via alert_service), apply risk delta (via
+        risk_engine.apply_delta), attach mitre mapping, mark event
+        processed=True. Returns list of created alerts (may be empty)."""
+    def reload_rule_cache(self) -> None:
+        """Called after any rule CRUD operation."""
+
+SAMPLE RULE SET (build at least these ~15 to prove the engine works before
+scaling toward the "300+ rules" target — write the rest by following this
+exact template, categorized by MITRE tactic):
+  RULE-0001 Unsigned executable dropped in %TEMP%      (Execution)
+  RULE-0002 PowerShell with encoded command             (Execution)
+  RULE-0003 New scheduled task created by non-admin     (Persistence)
+  RULE-0004 New service installed pointing to unusual path (Persistence)
+  RULE-0005 Registry Run key modified                    (Persistence)
+  RULE-0006 Process token elevation without UAC prompt event (Privilege Escalation)
+  RULE-0007 Security tool / AV process terminated        (Defense Evasion)
+  RULE-0008 Clearing of Windows event logs                (Defense Evasion)
+  RULE-0009 LSASS memory access by non-system process     (Credential Access)
+  RULE-0010 Multiple failed logins followed by success     (Credential Access)
+  RULE-0011 Discovery command chains (whoami, net user, systeminfo in sequence) (Discovery)
+  RULE-0012 SMB connection to unusual internal host        (Lateral Movement)
+  RULE-0013 Large USB file copy in short window             (Collection)
+  RULE-0014 DNS query volume spike to single domain (tunneling) (Exfiltration)
+  RULE-0015 Outbound connection to known-bad IOC             (Command and Control)
+
+API ENDPOINTS:
+GET/POST/PUT/DELETE /api/v1/rules   (permission: rules:read / rules:write)
+GET /api/v1/rules/{id}
+POST /api/v1/rules/validate         (dry-run validation without saving)
+
+LOGGING: rule.matched (rule_code, agent_id, event_id), rule.loaded,
+rule.validation_failed
+
+TESTS: each operator (eq/contains/regex/etc.) unit tested in isolation;
+nested all/any/not trees evaluate correctly; a malformed rule fails
+validation with a clear error at load time, not at eval time; matching a
+rule creates exactly one alert and one risk_scores row; rule reload picks
+up a newly enabled rule without a service restart.
+
+DEFINITION OF DONE:
+[ ] ConditionEvaluator supports all operators listed
+[ ] At least the 15 sample rules implemented and passing their own tests
+[ ] Rule hot-reload works
+[ ] No hardcoded detection logic anywhere outside the condition trees
+
+--------------------------------------------------------------------------------
+MODULE M9: THREAT INTELLIGENCE
+--------------------------------------------------------------------------------
+PURPOSE: Maintain a local cache of IOCs (IPs, domains, hashes) from
+external/open feeds, and let the Rule Engine / Network Collector check
+against it without a live external call per event.
+
+RESPONSIBILITIES:
+- Pluggable feed connectors (feeds/abuse_ch.py, feeds/otx.py, etc. — start
+  with one free feed, e.g. abuse.ch, to prove the pattern).
+- Periodic sync job pulling new indicators into `threat_intel_indicators`.
+- Fast lookup interface for the Rule Engine (in-memory set/bloom filter
+  refreshed on each sync, or a DB index — justify your choice in the
+  module README given expected IOC volume).
+
+CLASSES & METHODS:
+
+class ThreatIntelFeed(Protocol):   # interface every feed connector implements
+    async def fetch_indicators(self) -> list[IndicatorDTO]: ...
+
+class AbuseChFeed(ThreatIntelFeed):
+    async def fetch_indicators(self) -> list[IndicatorDTO]: ...
+        """Pulls from the feed's public API/CSV, maps to IndicatorDTO
+        (ioc_type, value, confidence, tags)."""
+
+class ThreatIntelCache:
+    def __init__(self): ...
+    def load_from_db(self, db_session) -> None:
+        """Populates in-memory sets keyed by ioc_type for O(1) lookup."""
+    def is_known_bad(self, ioc_type: str, value: str) -> IndicatorDTO | None: ...
+
+class ThreatIntelService:
+    def __init__(self, db_session, feeds: list[ThreatIntelFeed],
+                  cache: ThreatIntelCache): ...
+    async def sync_all_feeds(self) -> SyncResult:
+        """Fetches from every configured feed, upserts into
+        threat_intel_indicators (on conflict update last_seen), reloads
+        cache. Returns counts added/updated."""
+    def check_ioc(self, ioc_type: str, value: str) -> IndicatorDTO | None: ...
+
+API ENDPOINTS:
+GET  /api/v1/threat-intel/indicators?type=&q=   (permission: threatintel:read)
+POST /api/v1/threat-intel/feeds/sync            (permission: threatintel:write,
+                                                    admin — manual trigger)
+POST /api/v1/threat-intel/indicators            (manual IOC add, admin)
+
+INTEGRATION: Rule Engine gains an operator `ioc_match` that calls
+ThreatIntelCache.is_known_bad(field_value) — document this as an extension
+to M8's operator list once M9 exists.
+
+CONFIG: THREAT_INTEL_SYNC_INTERVAL_HOURS (default 6), enabled feed list
+
+LOGGING: threatintel.sync.started, threatintel.sync.completed (counts),
+threatintel.sync.failed (feed name, error), threatintel.ioc.matched
+
+TESTS: feed connector parses a sample fixture response correctly (mock the
+HTTP call, don't hit the real feed in CI); sync upserts without duplicate
+rows (unique constraint respected); cache lookup is correct after a sync;
+a telemetry event with a known-bad IP triggers the ioc_match rule operator.
+
+--------------------------------------------------------------------------------
+MODULE M10: MITRE ATT&CK MAPPING
+--------------------------------------------------------------------------------
+PURPOSE: Ground every rule/alert in the MITRE ATT&CK framework for
+credibility and for the dashboard's ATT&CK matrix heatmap view.
+
+RESPONSIBILITIES:
+- Load MITRE ATT&CK Enterprise dataset (download the official STIX JSON
+  from the MITRE ATT&CK GitHub repo, parse and load tactics + techniques
+  into `mitre_tactics` / `mitre_techniques` — a one-time import script,
+  scripts/import_mitre_attack.py).
+- Provide lookup for the Rule Engine and Dashboard.
+
+CLASSES & METHODS:
+
+class MitreDataImporter:
+    def parse_stix_bundle(self, filepath: str) -> tuple[list[Tactic],
+                                                           list[Technique]]: ...
+    async def import_to_db(self, db_session, tactics, techniques) -> None: ...
+
+class MitreMapper:
+    def __init__(self, db_session): ...
+    async def get_technique(self, technique_id: str) -> TechniqueDTO | None: ...
+    async def get_techniques_by_tactic(self, tactic_id: str
+                                         ) -> list[TechniqueDTO]: ...
+    async def get_coverage_matrix(self) -> dict:
+        """Returns { tactic_id: { technique_id: matched_rule_count } } —
+        powers the dashboard ATT&CK heatmap showing which techniques your
+        rule set actually covers."""
+
+API ENDPOINTS:
+GET /api/v1/mitre/tactics
+GET /api/v1/mitre/techniques?tactic_id=
+GET /api/v1/mitre/techniques/{id}
+GET /api/v1/mitre/coverage-matrix
+
+SCOPE NOTE: Import the full ATT&CK Enterprise matrix (all ~14 tactics,
+~200 techniques incl. sub-techniques) via the importer script — do not
+hand-write hundreds of technique rows. Your OWN rules (M8) only need to
+map to the ~15-40 techniques you actually built detections for; the
+importer gives you the full reference set so the coverage matrix is
+meaningful.
+
+TESTS: importer correctly parses a sample STIX fixture; get_technique
+returns None for unknown IDs (not an exception — a 404 is a normal case
+here); coverage matrix counts match actual rule mappings in test fixtures.
+
+--------------------------------------------------------------------------------
+MODULE M11: POLICY ENGINE
+--------------------------------------------------------------------------------
+PURPOSE: Decide WHAT response actions to take based on current risk score
++ agent attributes, decoupled from the Rule Engine (rules detect, policies
+decide response — this separation is what makes the system "not hardcoded
+if/else").
+
+POLICY DEFINITION FORMAT (`policies.condition_json` / `actions_json`):
+condition_json example:
+{ "all": [ { "field": "risk_score", "op": "gt", "value": 80 },
+            { "field": "agent.department", "op": "ne", "value": "IT" } ] }
+actions_json example (ordered — executed in sequence, each logged):
+[ { "action": "LOGOFF_USER", "params": {} },
+  { "action": "DISABLE_NETWORK", "params": {} },
+  { "action": "NOTIFY_SOC", "params": { "channel": "dashboard" } },
+  { "action": "CREATE_INCIDENT", "params": { "severity": "high" } } ]
+
+CLASSES & METHODS:
+
+class PolicyEvaluator:
+    def evaluate(self, condition: dict, context: dict) -> bool:
+        """Reuses the same ConditionEvaluator engine as M8 (share the
+        library — don't duplicate the operator logic) against a context
+        dict of { risk_score, agent: {...}, recent_alerts: [...] }."""
+
+class PolicyEngine:
+    def __init__(self, db_session, evaluator: PolicyEvaluator,
+                  command_dispatcher, alert_service, incident_service): ...
+    async def evaluate(self, agent_id: UUID) -> list[PolicyActionResult]:
+        """Loads enabled policies ordered by priority (ascending = higher
+        priority evaluated first), builds context, evaluates each; on
+        match, executes actions_json in order via
+        _execute_action(); supports a `stop_on_match` flag per policy
+        (default True) to prevent cascading conflicting policies."""
+    async def _execute_action(self, agent_id: UUID, action: str,
+                                params: dict, policy_id: UUID
+                                ) -> PolicyActionResult:
+        """Dispatch table mapping action string -> handler:
+        LOGOFF_USER/KILL_PROCESS/DISABLE_NETWORK/etc. -> builds a
+        SignedCommand and calls command_dispatcher.dispatch();
+        NOTIFY_SOC -> pushes a dashboard notification via WebSocket;
+        CREATE_INCIDENT -> incident_service.create_from_agent(agent_id).
+        Every action attempt is logged with success/failure regardless of
+        whether the downstream command itself later succeeds/fails
+        (that's tracked separately via commands.status)."""
+
+API ENDPOINTS:
+GET/POST/PUT/DELETE /api/v1/policies       (permission: policies:read/write)
+GET/POST /api/v1/policy-groups
+POST /api/v1/policies/{id}/test            (dry-run against a given agent_id,
+                                              returns would-match + would-do
+                                              actions WITHOUT executing —
+                                              critical for safe policy
+                                              authoring)
+
+LOGGING: policy.evaluated (agent_id, matched_policy_ids), policy.action.executed,
+policy.action.failed
+
+TESTS: policy with risk>80 AND department!=IT matches correctly and does
+NOT match an IT department agent even at risk 95 (tests the AND
+condition); actions execute in declared order; stop_on_match prevents a
+second lower-priority policy from also firing; /test endpoint never
+creates real commands (assert no commands row created).
+
+DEFINITION OF DONE:
+[ ] Policy evaluation reuses M8's ConditionEvaluator (no duplicated logic)
+[ ] Dry-run /test endpoint implemented and verified to be side-effect-free
+[ ] Action dispatch table covers every command_type from SECTION 4
+
+--------------------------------------------------------------------------------
+MODULE M12: COMMAND DISPATCHER
+--------------------------------------------------------------------------------
+NOTE: Core dispatch logic lives in M6 (CommandDispatcher class). This
+section covers the REST surface + signing.
+
+CLASSES & METHODS:
+
+class CommandSigner:
+    def __init__(self, manager_private_key_path: str): ...
+    def sign(self, command_dict_without_signature: dict) -> str:
+        """Canonicalizes JSON (sorted keys, no whitespace) and signs with
+        RSA-SHA256. Returns base64 signature."""
+
+class CommandService:
+    def __init__(self, db_session, signer: CommandSigner,
+                  dispatcher: CommandDispatcher): ...
+    async def create_and_dispatch(self, agent_id: UUID, command_type: str,
+                                    params: dict, issued_by: UUID | None,
+                                    policy_id: UUID | None,
+                                    ttl_seconds: int = 300
+                                    ) -> Command:
+        """Builds the command dict, signs it, persists (status=pending),
+        calls dispatcher.dispatch()."""
+    async def record_ack(self, command_id: UUID) -> None: ...
+    async def record_result(self, command_id: UUID, status: str,
+                              output: str, error: str | None) -> None:
+        """Updates commands row, creates a timeline_event, and if status
+        is 'failed', creates a medium-severity alert 'Response action
+        failed' (a failed containment action is itself worth alerting
+        on)."""
+
+API ENDPOINTS:
+POST /api/v1/commands                (permission: commands:execute — manual
+                                        SOC-triggered command, e.g. an
+                                        analyst clicking "Isolate this
+                                        endpoint" in the dashboard)
+GET  /api/v1/commands/{id}
+GET  /api/v1/agents/{id}/commands
+POST /agent/commands/ack             (agent-facing, mTLS)
+POST /agent/commands/result          (agent-facing, mTLS)
+GET  /agent/commands/pending         (agent-facing, mTLS — poll fallback)
+
+TESTS: signature verification round-trip (sign then verify with the
+matching public key succeeds; tampering with any field invalidates the
+signature); expired command (past expires_at) is rejected by a
+verification helper (used both here for tests and on the agent side —
+share the verification logic conceptually even though agent is a
+different codebase/language runtime).
+
+--------------------------------------------------------------------------------
+MODULE M13: ALERT ENGINE
+--------------------------------------------------------------------------------
+PURPOSE: Centralize alert creation/lifecycle (open -> acknowledged ->
+investigating -> resolved/false_positive), independent of what created it
+(rule match, manual, threat intel match).
+
+CLASSES & METHODS:
+
+class AlertService:
+    def __init__(self, db_session, ws_connection_manager, notification_worker): ...
+    async def create_alert(self, agent_id: UUID, title: str,
+                             description: str, severity: str,
+                             rule_id: UUID | None,
+                             telemetry_event_id: UUID | None,
+                             mitre_technique_id: str | None) -> Alert:
+        """Persists, creates a timeline_event, broadcasts via WebSocket to
+        connected dashboards, enqueues a notification_worker job if
+        severity is high/critical."""
+    async def update_status(self, alert_id: UUID, status: str,
+                              actor_id: UUID) -> Alert:
+        """Validates legal state transitions (e.g. can't go from
+        'resolved' back to 'open' directly — must reopen explicitly if
+        you support that transition; document your chosen state machine
+        in the README with a diagram)."""
+    async def assign(self, alert_id: UUID, user_id: UUID,
+                       actor_id: UUID) -> Alert: ...
+    async def list_alerts(self, filters: AlertFilters, page: int,
+                            page_size: int) -> PaginatedResult[Alert]: ...
+
+API ENDPOINTS:
+GET  /api/v1/alerts?status=&severity=&agent_id=&page=
+GET  /api/v1/alerts/{id}
+PUT  /api/v1/alerts/{id}          (status/assignment updates)
+
+LOGGING: alert.created, alert.status.changed, alert.assigned
+
+TESTS: illegal state transition rejected; creating a critical alert
+enqueues a notification job (assert on the worker mock); pagination and
+filter combinations return correct subsets (use a seeded test DB).
+
+--------------------------------------------------------------------------------
+MODULE M14: TIMELINE ENGINE
+--------------------------------------------------------------------------------
+PURPOSE: Single chronological narrative per agent or per incident, pulling
+together telemetry, alerts, commands, and policy actions — this is what
+makes the dashboard's incident investigation view actually useful instead
+of scattered tables.
+
+CLASSES & METHODS:
+
+class TimelineService:
+    async def record_event(self, agent_id: UUID | None,
+                             incident_id: UUID | None, event_source: str,
+                             event_ref_id: UUID | None,
+                             description: str) -> TimelineEvent:
+        """Called by other services (AlertService, CommandService,
+        PolicyEngine) whenever something timeline-worthy happens — this
+        is a shared utility injected into those services, not something
+        that polls other tables after the fact."""
+    async def get_agent_timeline(self, agent_id: UUID, since: datetime,
+                                   until: datetime
+                                   ) -> list[TimelineEvent]: ...
+    async def get_incident_timeline(self, incident_id: UUID
+                                      ) -> list[TimelineEvent]: ...
+
+API ENDPOINTS:
+GET /api/v1/agents/{id}/timeline?since=&until=
+GET /api/v1/incidents/{id}/timeline
+
+TESTS: events from multiple sources (alert + command + policy) for the
+same agent interleave in correct chronological order; incident timeline
+only includes events actually linked to that incident.
+
+--------------------------------------------------------------------------------
+MODULE M15: CERTIFICATE MANAGEMENT
+--------------------------------------------------------------------------------
+PURPOSE: Operational lifecycle for the mTLS PKI beyond initial issuance
+(covered in M3) — rotation, expiry monitoring, revocation list serving.
+
+CLASSES & METHODS:
+
+class CertificateLifecycleService:
+    async def list_expiring_soon(self, within_days: int = 30
+                                   ) -> list[AgentCertInfo]: ...
+    async def rotate_certificate(self, agent_id: UUID) -> RotationResult:
+        """Issues a new cert via CA (M3's CertificateAuthority), pushes a
+        ROTATE_CERTIFICATE command to the agent (new command_type — add
+        to SECTION 4's enum), agent installs it and re-establishes mTLS
+        with the new cert on next connection."""
+    def get_crl(self) -> str:
+        """Serves the current Certificate Revocation List (PEM/DER) — the
+        TLS termination layer (nginx/Traefik in front of FastAPI, or a
+        custom ASGI TLS layer) checks this on every handshake."""
+
+API ENDPOINTS:
+GET /api/v1/certificates/expiring?within_days=  (permission: agents:write, admin)
+POST /api/v1/agents/{id}/rotate-certificate     (admin)
+GET  /crl                                        (public, used by the TLS layer)
+
+SCHEDULER JOB: daily check for certs expiring within 30 days -> creates a
+medium-severity system alert so the admin isn't caught by surprise.
+
+TESTS: rotated cert is different from the original and validates against
+the CA; revoked/old cert fails a subsequent mTLS handshake (integration
+test); expiring-soon query correctly filters by date threshold.
+
+--------------------------------------------------------------------------------
+MODULE M16: AUDIT LOG
+--------------------------------------------------------------------------------
+PURPOSE: Immutable record of every security-relevant action for the
+project's "who did what when" story — essential for defending an EDR
+project to examiners.
+
+CLASSES & METHODS:
+
+class AuditLogger:
+    def __init__(self, db_session): ...
+    async def log(self, actor_type: str, actor_id: UUID | None,
+                    action: str, target_type: str, target_id: UUID | None,
+                    details: dict, ip_address: str | None) -> None:
+        """Fire-and-forget style insert (don't let audit logging failure
+        block the primary operation — catch and log-to-file as a
+        fallback if the DB write itself fails)."""
+    async def query(self, filters: AuditFilters, page: int, page_size: int
+                      ) -> PaginatedResult[AuditLog]: ...
+
+INTEGRATION: Injected into AuthService, RBACService,
+AgentRegistrationService, PolicyEngine, CommandService, AlertService — every
+module that performs a state-changing security action calls
+audit_logger.log(...). Maintain a canonical `action` string enum shared
+across modules (e.g. AuditAction.LOGIN_SUCCESS,
+AuditAction.AGENT_DECOMMISSIONED, AuditAction.POLICY_CREATED) in a shared
+constants module so strings don't drift.
+
+API ENDPOINTS:
+GET /api/v1/audit-logs?actor_id=&action=&from=&to=  (permission: audit:read,
+                                                        admin only)
+
+TESTS: log() failure doesn't raise into the caller (test that a login
+still succeeds even if audit DB write is mocked to fail, given the
+fallback design); query filters work correctly; immutability — confirm no
+UPDATE/DELETE endpoint exists for audit_logs at all.
+
+================================================================================
+SECTION 6 — AGENT MODULES (Windows, Python 3.12+)
+================================================================================
+
+--------------------------------------------------------------------------------
+MODULE A1: CONFIGURATION
+--------------------------------------------------------------------------------
+PURPOSE: Single source of runtime config for the agent — no hardcoded
+manager URL, ports, intervals, cert paths anywhere else in the agent.
+
+CLASSES & METHODS:
+
+class AgentConfig(BaseSettings):   # pydantic-settings
+    manager_url: str
+    manager_ws_url: str
+    heartbeat_interval_seconds: int = 30
+    telemetry_batch_interval_seconds: int = 15
+    telemetry_batch_size: int = 50
+    cert_path: str
+    key_path: str
+    ca_cert_path: str
+    local_db_path: str
+    log_level: str = "INFO"
+    offline_queue_max_size: int = 100000
+    offline_flush_batch_size: int = 100
+
+    class Config:
+        env_file = "agent_config.env"    # + supports a config.yaml override
+
+    def reload(self) -> None:
+        """Hot-reload from file (for config changes pushed via a
+        management command without a full agent restart, where safe)."""
+
+TESTS: missing required field raises a clear validation error at startup
+(fail fast, not halfway through runtime); env var override works.
+
+--------------------------------------------------------------------------------
+MODULE A2: REGISTRATION (Agent side)
+--------------------------------------------------------------------------------
+PURPOSE: Client-side counterpart to M3. Implements the /agent/register flow
+from SECTION 4.
+
+CLASSES & METHODS:
+
+class AgentRegistrationClient:
+    def __init__(self, config: AgentConfig): ...
+    def generate_keypair_and_csr(self, common_name: str
+                                   ) -> tuple[str, str]:
+        """Generates an RSA keypair locally (private key NEVER leaves the
+        machine), builds a CSR. Returns (private_key_pem, csr_pem).
+        Private key written to cert_path with restrictive file
+        permissions (owner-only)."""
+    def get_hardware_fingerprint(self) -> str:
+        """SHA256 of a stable combination: motherboard serial (WMI
+        Win32_BaseBoard), disk serial, MAC address — NOT hostname alone
+        (hostnames change)."""
+    async def register(self, enrollment_token: str) -> RegistrationResult:
+        """Only runs if no local agent_id is already persisted (idempotent
+        — an already-registered agent restarting should NOT re-register).
+        POSTs to /agent/register, saves returned cert + agent_id + policy
+        group to local storage."""
+
+CONFIG: enrollment_token supplied via installer at install time (see A18),
+never hardcoded in source.
+
+TESTS: hardware fingerprint is stable across two calls on the same
+machine; registration is skipped if agent_id already persisted; CSR
+generated is valid and parseable.
+
+--------------------------------------------------------------------------------
+MODULE A3: HEARTBEAT (Agent side)
+--------------------------------------------------------------------------------
+CLASSES & METHODS:
+
+class HeartbeatSender:
+    def __init__(self, config: AgentConfig, transport): ...
+    def collect_resource_stats(self) -> ResourceStats:
+        """Uses psutil: cpu_percent, virtual_memory().percent,
+        disk_usage('/').percent."""
+    async def send_heartbeat(self) -> bool:
+        """Returns False on failure (caller decides offline handling —
+        heartbeats are NOT queued offline, only telemetry is, per
+        SECTION 4)."""
+    async def run_forever(self) -> None:
+        """Loop: send_heartbeat() every heartbeat_interval_seconds. On
+        failure, does NOT crash the agent — logs and continues; also
+        signals connectivity_monitor.py (A-network) that we may be
+        offline after N consecutive failures."""
+
+TESTS: run_forever sends at the configured interval (use a fake clock /
+mock sleep in tests, don't actually sleep 30s in CI); consecutive failures
+correctly flip a "possibly offline" flag after the configured threshold.
+
+--------------------------------------------------------------------------------
+MODULE A4: COMMUNICATION / TRANSPORT (Agent side)
+--------------------------------------------------------------------------------
+PURPOSE: mTLS HTTP client + WebSocket client with reconnect/backoff, shared
+by registration, heartbeat, telemetry sender, and command receiver.
+
+CLASSES & METHODS:
+
+class SecureTransport:
+    def __init__(self, config: AgentConfig): ...
+        """Builds an httpx.Client / websockets connection configured with
+        client cert (cert_path/key_path) and CA verification
+        (ca_cert_path) — never `verify=False`."""
+    async def post(self, path: str, json: dict) -> httpx.Response:
+        """Raises TransportError on network failure, AuthenticationError
+        on 401/403 (cert rejected/revoked — should trigger a re-registration
+        or alert to local log, since a revoked cert means the admin
+        intentionally cut this agent off)."""
+    async def get(self, path: str, params: dict | None = None) -> httpx.Response: ...
+
+class WebSocketClient:
+    def __init__(self, config: AgentConfig, on_command_received: Callable): ...
+    async def connect_with_backoff(self) -> None:
+        """Exponential backoff: base 5s, multiplier 2, cap 300s, +/-20%
+        jitter. Logs each retry attempt at WARNING, logs successful
+        (re)connect at INFO."""
+    async def listen(self) -> None:
+        """Dispatches incoming 'command' messages to on_command_received
+        callback (wired to responses/response_engine.py)."""
+
+TESTS: backoff timing follows the formula (test the calculation function
+in isolation, don't actually wait in tests); revoked cert (mocked 401)
+triggers AuthenticationError and is handled, not crashed on; reconnect
+after simulated disconnect re-establishes and resumes command listening.
+
+--------------------------------------------------------------------------------
+MODULE A5: OFFLINE QUEUE
+--------------------------------------------------------------------------------
+PURPOSE: Guarantee no telemetry loss when the manager is unreachable —
+core Zero Trust resilience requirement.
+
+CLASSES & METHODS:
+
+class OfflineQueue:   # backed by local SQLite (storage/local_db.py)
+    def __init__(self, db_path: str, max_size: int): ...
+    def enqueue(self, event: TelemetryEventDTO) -> None:
+        """Raises QueueFullError if max_size reached — caller should then
+        apply a documented eviction policy (recommend: drop oldest
+        low-severity events first, never drop unprocessed HIGH-signal
+        events like credential access — implement this priority-aware
+        eviction explicitly, don't just drop randomly)."""
+    def dequeue_batch(self, batch_size: int) -> list[TelemetryEventDTO]: ...
+    def mark_synced(self, event_ids: list[str]) -> None:
+        """Deletes synced rows from local SQLite after manager confirms
+        receipt (only after ack, never optimistically delete before
+        confirmation)."""
+    def queue_depth(self) -> int: ...
+
+class OfflineSyncManager:
+    def __init__(self, queue: OfflineQueue, transport: SecureTransport,
+                  batch_size: int): ...
+    async def flush_on_reconnect(self) -> SyncResult:
+        """Called by connectivity_monitor when connection is restored.
+        Sends batches of `batch_size` until queue_depth() == 0 or a batch
+        fails (stop and retry later on failure, don't drop the batch)."""
+
+TESTS: queue survives an agent process restart (data is on disk, not
+in-memory — test by writing, killing the "process" i.e. re-instantiating
+OfflineQueue against the same db_path, and reading back); eviction policy
+correctly protects high-severity events under max_size pressure; flush
+stops cleanly on a mid-batch failure without losing/duplicating events
+(idempotent retry — dedupe on event UUID at the manager's
+/agent/telemetry endpoint too, belt-and-suspenders).
+
+--------------------------------------------------------------------------------
+MODULE A6-A12: COLLECTORS
+--------------------------------------------------------------------------------
+SHARED INTERFACE (base_collector.py — every collector implements this):
+
+class BaseCollector(ABC):
+    def __init__(self, event_sink: Callable[[TelemetryEventDTO], None]): ...
+        """event_sink is called for every collected event — wired to
+        either the offline queue (if disconnected) or the telemetry
+        sender's batching buffer (if connected); the collector itself
+        doesn't know or care about connectivity state."""
+    @abstractmethod
+    def start(self) -> None:
+        """Begin monitoring (spawn a thread/async task/WMI subscription
+        as appropriate to the collector type)."""
+    @abstractmethod
+    def stop(self) -> None:
+        """Clean shutdown — release WMI subscriptions, stop threads."""
+    @abstractmethod
+    def collector_type(self) -> str: ...
+
+--- A6: PROCESS COLLECTOR (collectors/process_collector.py) ---
+MECHANISM: WMI event subscription (Win32_ProcessStartTrace /
+Win32_ProcessStopTrace via `wmi` or `pywin32`) — event-driven, NOT polling
+(polling misses short-lived processes, a common evasion technique).
+COLLECTED DATA per process_start event:
+  process_name, pid, ppid, parent_process_name, command_line,
+  executable_path, executable_sha256 (hash on first sight, cache hash by
+  path+mtime to avoid re-hashing unchanged files), signed (bool, via
+  Authenticode check — subprocess call to `signtool verify` or use
+  `win32api.GetFileVersionInfo` + certificate chain check), user_sid,
+  integrity_level.
+FREQUENCY: real-time (event-driven).
+PERFORMANCE NOTE: hashing large files synchronously can lag the event
+loop — hash asynchronously in a worker thread pool, don't block the WMI
+callback.
+FALSE POSITIVE HANDLING: maintain a local allowlist cache (paths of
+known-good, previously-seen-and-cleared processes) to avoid re-alerting
+every launch of e.g. chrome.exe — but still send the telemetry event
+either way (allowlisting affects local_rule_engine severity weighting,
+not whether the event exists in telemetry at all — the manager should
+always see the ground truth).
+
+--- A7: SERVICE COLLECTOR (collectors/service_collector.py) ---
+MECHANISM: WMI __InstanceCreationEvent/__InstanceModificationEvent on
+Win32_Service, OR polling `sc query` diff every N seconds as a simpler
+fallback (document tradeoff in README).
+COLLECTED DATA: service_name, display_name, path_name, start_mode,
+state, start_name (account), change_type (created/modified/deleted).
+FREQUENCY: event-driven or 30s poll.
+
+--- A8: REGISTRY COLLECTOR (collectors/registry_collector.py) ---
+MECHANISM: RegNotifyChangeKeyValue (via ctypes/pywin32) on a curated set
+of security-relevant keys — NOT the entire registry (performance).
+MONITORED KEYS (at minimum):
+  HKLM\Software\Microsoft\Windows\CurrentVersion\Run
+  HKCU\Software\Microsoft\Windows\CurrentVersion\Run
+  HKLM\System\CurrentControlSet\Services
+  HKLM\Software\Microsoft\Windows NT\CurrentVersion\Winlogon
+COLLECTED DATA: key_path, value_name, old_value (if available),
+new_value, change_type.
+FREQUENCY: event-driven.
+
+--- A9: NETWORK COLLECTOR (collectors/network_collector.py) ---
+MECHANISM: psutil.net_connections() polled every N seconds (5-10s) for
+connection deltas, PLUS optional lightweight packet metadata via scapy
+for DNS query logging (do NOT do full packet capture/DPI — scope-appropriate
+for a final year project; document this limitation explicitly).
+COLLECTED DATA: local_addr, local_port, remote_addr, remote_port,
+protocol (TCP/UDP), status, pid, process_name (joined from process
+collector's cache), direction (inbound/outbound), dns_query (if captured).
+DETECTION-RELEVANT DERIVED SIGNALS (computed here or left to Rule Engine —
+document your choice): new listening ports, connections to previously
+unseen remote IPs, connection count spike (possible port scan/beaconing).
+FREQUENCY: 5-10s poll interval (configurable).
+
+--- A10: USB COLLECTOR (collectors/usb_collector.py) ---
+MECHANISM: WMI __InstanceCreationEvent on Win32_USBControllerDevice /
+Win32_DiskDrive, or WM_DEVICECHANGE window message hook.
+COLLECTED DATA: device_id, device_description, serial_number,
+vendor_id, product_id, drive_letter (if mass storage), event_type
+(connected/disconnected), file_copy_activity (if feasible — monitor the
+new drive letter's directory for a short window post-mount and log
+large/bulk file writes; document this as best-effort, not exhaustive DLP).
+FREQUENCY: event-driven.
+
+--- A11: FILE COLLECTOR (collectors/file_collector.py) ---
+MECHANISM: ReadDirectoryChangesW (via win32file) watching a configurable
+set of sensitive directories — NOT the whole filesystem (performance +
+noise).
+DEFAULT WATCHED PATHS: %APPDATA%, %TEMP%, Desktop, Documents, and any
+admin-configured sensitive folders (policy-configurable, pulled from
+agent config / a policy push, not hardcoded).
+COLLECTED DATA: file_path, change_type (created/modified/deleted/renamed),
+file_size, file_hash (for created/modified, small files only —
+size-threshold configurable to avoid hashing huge files), process_that_
+touched_it (best-effort, joined from process collector if timing allows).
+FREQUENCY: event-driven.
+
+--- A12: LOG COLLECTOR (collectors/log_collector.py) ---
+MECHANISM: Windows Event Log subscription (win32evtlog /
+EvtSubscribe) on Security, System, and Application channels, filtered to
+a specific allowlist of Event IDs (not all events — huge noise
+otherwise).
+KEY EVENT IDS TO WATCH (minimum set):
+  4624 (successful logon), 4625 (failed logon), 4648 (explicit credential
+  logon), 4672 (special privileges assigned), 4697 (service installed),
+  4698 (scheduled task created), 4720 (user account created),
+  4732 (user added to security group), 1102 (audit log cleared),
+  7045 (new service installed - System log)
+COLLECTED DATA: event_id, channel, timestamp, event_data (parsed XML ->
+dict of the event-specific fields).
+FREQUENCY: event-driven (subscription push).
+
+--- LOGIN COLLECTOR (collectors/login_collector.py — folds into A12 or
+separate; keep separate if you want a cleaner "user activity" story) ---
+MECHANISM: WTSRegisterSessionNotification (win32ts) for
+logon/logoff/lock/unlock session events, complementing the 4624/4625
+event log entries with real-time session state (locked vs active).
+COLLECTED DATA: session_id, user_sid, event_type (logon/logoff/lock/
+unlock/remote_connect/remote_disconnect), timestamp.
+
+SHARED COLLECTOR TESTS (write once, parametrize per collector):
+- start() begins producing events into a fake event_sink within a
+  reasonable test timeout (simulate the underlying OS event where
+  possible, or test against a fixture/mock of the WMI/WinAPI layer since
+  CI likely isn't Windows — document this constraint: mark real-OS
+  integration tests to run manually on a Windows dev machine, and have
+  pure-logic unit tests run in CI on any OS by mocking the OS layer)
+- stop() cleanly releases resources (no leaked threads/subscriptions —
+  test with threading.active_count() before/after where applicable)
+- malformed/partial OS event data doesn't crash the collector (wrap the
+  OS callback in try/except, log and skip on parse failure)
+- each collector_type() returns the correct constant used by the manager
+  side rule engine's `collector_type` field
+
+--------------------------------------------------------------------------------
+MODULE A13: LOCAL RULE ENGINE
+--------------------------------------------------------------------------------
+PURPOSE: A small, fast subset of high-confidence rules evaluated LOCALLY
+on the agent for immediate local logging / local severity tagging, even
+before the event reaches the manager (useful for offline periods and for
+reducing latency on the most critical detections). This is NOT a
+replacement for the manager's Rule Engine (M8) — it's a lightweight first
+pass.
+
+CLASSES & METHODS:
+
+class LocalRuleEngine:
+    def __init__(self, local_rules: list[dict]): ...
+        """Loads a small YAML file of local rules, pushed down from the
+        manager as part of agent policy sync (reuses the exact same
+        condition-tree format as M8 for consistency — the agent's
+        ConditionEvaluator should be a near-identical port)."""
+    def evaluate(self, event: TelemetryEventDTO) -> LocalMatch | None:
+        """Tags the event with a local severity hint before it's queued/
+        sent — does NOT create alerts locally (alerts remain a manager-
+        side concept, single source of truth) — just annotates."""
+
+TESTS: same operator test suite as M8's ConditionEvaluator (shared logic,
+shared tests — consider actually sharing this as a small internal library
+package used by both manager and agent codebases if your project
+structure allows it).
+
+--------------------------------------------------------------------------------
+MODULE A14: POWERSHELL EXECUTOR
+--------------------------------------------------------------------------------
+PURPOSE: The ONLY place in the agent that shells out to PowerShell —
+tightly controlled, allowlisted, parameterized, never string-concatenated
+from untrusted input.
+
+CLASSES & METHODS:
+
+class PowerShellExecutor:
+    def __init__(self, scripts_dir: str, timeout_seconds: int = 30): ...
+    def execute_template(self, template_name: str,
+                           params: dict[str, str]) -> PSResult:
+        """template_name must match an allowlisted .ps1 file in
+        scripts_dir (raise UnknownTemplateError otherwise — NEVER accept
+        arbitrary script content or command strings from a command
+        payload). Parameters are passed via PowerShell's own -Param
+        mechanism (subprocess argument list, NOT string interpolation
+        into a shell command — this is the #1 injection risk to avoid).
+        Runs with a timeout; kills the process on timeout and returns a
+        PSResult(success=False, error='timeout'). Captures stdout/stderr,
+        exit code."""
+
+ALLOWLISTED SCRIPT TEMPLATES (powershell/scripts/*.ps1 — one per
+response action, each taking ONLY the specific typed parameters it needs):
+  logoff_user.ps1            (param: SessionId or "*" for all sessions)
+  kill_process.ps1           (param: ProcessId or ProcessName)
+  add_firewall_block_rule.ps1 (params: RuleName, Direction, RemoteIP/Any)
+  remove_firewall_rule.ps1   (param: RuleName)
+  disable_network_adapter.ps1 (param: AdapterName or "all")
+  enable_network_adapter.ps1
+  lock_workstation.ps1        (no params — calls rundll32
+                                user32.dll,LockWorkStation)
+  create_scheduled_task.ps1   (params: TaskName, TriggerType, Action —
+                                used cautiously, mainly for scheduled
+                                self-checks, not arbitrary task creation)
+  delete_scheduled_task.ps1   (param: TaskName)
+  stop_service.ps1            (param: ServiceName)
+  start_service.ps1           (param: ServiceName)
+
+EXCEPTIONS: UnknownTemplateError, PSExecutionTimeoutError,
+PSExecutionFailedError, InvalidParameterError (validate param types/format
+before ever building the subprocess call — e.g. ProcessId must be a
+positive int, RuleName must match a safe charset regex).
+
+TESTS: attempting to execute a non-allowlisted template raises
+UnknownTemplateError; parameters with shell metacharacters
+(;, |, &, $, backticks) are rejected by InvalidParameterError BEFORE
+subprocess is ever invoked (this is a security-critical test — write
+several injection-attempt test cases); timeout is enforced and the
+process is actually killed, not just the Python call abandoned (verify no
+orphaned process via a test that spawns a deliberately slow ps1 fixture).
+
+--------------------------------------------------------------------------------
+MODULE A15: RESPONSE ENGINE
+--------------------------------------------------------------------------------
+PURPOSE: Receives a verified SignedCommand (already validated by
+communication layer per SECTION 4) and maps it to the correct PowerShell
+template or native Windows API call.
+
+CLASSES & METHODS:
+
+class ResponseEngine:
+    def __init__(self, ps_executor: PowerShellExecutor,
+                  result_reporter: Callable): ...
+    async def handle_command(self, command: SignedCommand) -> None:
+        """Dispatch table: command_type -> handler method. Every handler
+        returns a PSResult or equivalent, which is reported back via
+        result_reporter (wired to /agent/commands/result). Wraps every
+        handler call in try/except -> reports status='failed',
+        error=str(exception) on any unhandled exception, so a bad
+        response action never crashes the agent process."""
+    def _handle_logoff_user(self, params: dict) -> PSResult: ...
+    def _handle_kill_process(self, params: dict) -> PSResult:
+        """Prefer psutil.Process(pid).terminate()/kill() directly over
+        PowerShell for this one — it's simpler and avoids a subprocess
+        for something the Python stdlib does natively; document this
+        deliberate deviation from 'PowerShell for everything' in the
+        README with the reasoning (use the right tool, not PowerShell
+        dogma)."""
+    def _handle_disable_network(self, params: dict) -> PSResult:
+        """Full isolation: disables all adapters except loopback AND
+        optionally keeps a narrow allowlisted route to the manager's IP
+        so the agent can still receive the RE-ENABLE command later
+        (critical design decision — document and implement this
+        carefully, a fully isolated agent that can never be un-isolated
+        remotely is a real operational problem worth solving in the
+        report)."""
+    def _handle_disable_adapter(self, params: dict) -> PSResult: ...
+    def _handle_lock_workstation(self, params: dict) -> PSResult: ...
+    def _handle_firewall_rule(self, params: dict, add: bool) -> PSResult: ...
+    def _handle_quarantine_file(self, params: dict) -> PSResult:
+        """Moves file to a protected quarantine directory (agent-install-
+        dir-local, ACL'd to SYSTEM/admin only) and renames with a
+        non-executable extension; records original path for RESTORE_FILE."""
+    def _handle_restore_file(self, params: dict) -> PSResult: ...
+    def _handle_scheduled_task(self, params: dict, create: bool) -> PSResult: ...
+    def _handle_service_control(self, params: dict, start: bool) -> PSResult: ...
+
+TESTS: each handler tested against a mocked ps_executor/psutil (assert
+correct template + params passed); an exception inside any handler is
+caught and reported as a failed result, never propagates and crashes the
+agent; DISABLE_NETWORK isolation preserves a route back to the manager
+(test the actual firewall/route rule content produced, not just that a
+function was called).
+
+--------------------------------------------------------------------------------
+MODULE A16: SELF PROTECTION
+--------------------------------------------------------------------------------
+PURPOSE: Resist tampering by standard (non-admin) users. Document clearly
+(in the README and your final report) that this does NOT claim to resist
+a local Administrator — that requires a kernel driver / ELAM, out of scope.
+
+CLASSES & METHODS:
+
+class ServiceGuard:
+    def configure_service_acl(self) -> None:
+        """Uses `sc.exe sdset` or win32security to set a security
+        descriptor on the Windows Service that denies SERVICE_STOP and
+        SERVICE_PAUSE_CONTINUE to non-admin SIDs, while allowing
+        SERVICE_QUERY_STATUS to everyone (so it's visible but not
+        stoppable) — run this once at service install time."""
+    def watchdog_loop(self) -> None:
+        """A secondary lightweight watchdog (can be a second, differently
+        -named scheduled task or a minimal separate service) that checks
+        the main service's status every N seconds and restarts it if
+        stopped/crashed — mutual restart pattern (each watches the
+        other) is a nice touch to mention in your report, but a single
+        watchdog is sufficient for FYP scope."""
+
+class FileIntegrityGuard:
+    def restrict_install_directory_acl(self, install_dir: str) -> None:
+        """Sets NTFS ACLs on the install directory + config files so
+        only SYSTEM/Administrators have write access; standard users get
+        read+execute only (or no access to config/certs at all)."""
+    def verify_integrity(self) -> IntegrityCheckResult:
+        """On startup and periodically, hashes critical files (the main
+        executable, config.py, key files) and compares against a stored
+        manifest (signed/protected itself) — flags tampering."""
+
+class TamperLogger:
+    def log_tamper_attempt(self, attempt_type: str, details: dict) -> None:
+        """Logs locally (protected log file) AND attempts to send an
+        immediate high-priority telemetry event to the manager ('agent
+        tamper attempt detected on {hostname}') — this event should
+        bypass the normal batching and be sent immediately if online."""
+
+WINDOWS SERVICE RECOVERY CONFIG: use `sc.exe failure` (or the equivalent
+win32serviceutil config) to set the service's built-in recovery actions —
+restart on 1st/2nd/subsequent failure, with a reset period — this is the
+simplest, most defensible "auto-restart on crash" mechanism (native
+Windows feature, don't reinvent it).
+
+TESTS: non-admin token (simulate via a restricted test context or
+document as a manual Windows integration test since true privilege
+testing is hard to fully automate) cannot stop the service; ACL denies
+write to install dir for a standard user; integrity check flags a
+deliberately modified test file; tamper logger produces a log entry AND
+attempts the immediate-send path (mock the transport, assert it was
+called with high priority / no batching delay).
+
+--------------------------------------------------------------------------------
+MODULE A17: WINDOWS SERVICE WRAPPER
+--------------------------------------------------------------------------------
+PURPOSE: Package the whole agent (collectors, communication, response
+engine, self-protection) as a proper Windows Service.
+
+CLASSES & METHODS:
+
+class EDRAgentService(win32serviceutil.ServiceFramework):
+    _svc_name_ = "ZeroTrustEDRAgent"
+    _svc_display_name_ = "Zero Trust EDR Agent"
+    _svc_description_ = "Endpoint monitoring and response agent"
+    def SvcDoRun(self) -> None:
+        """Initializes AgentConfig, starts all collectors, starts
+        HeartbeatSender.run_forever(), starts WebSocketClient.listen(),
+        starts OfflineSyncManager watch loop — runs an asyncio event loop
+        for the async pieces alongside the service's own message loop
+        (use a background thread running asyncio.run() for the async
+        subsystem, since ServiceFramework itself is sync)."""
+    def SvcStop(self) -> None:
+        """Graceful shutdown: stop() every collector, close transport
+        connections, flush any in-memory (not-yet-queued) events to the
+        offline queue so nothing collected in the last few ms before
+        shutdown is lost."""
+
+STARTUP TYPE: Automatic (starts before user logon — critical requirement
+from the original spec). Configure via SvcSetupCmdInterp/pywin32 install
+step: `python service.py --startup auto install`.
+
+DEFINITION OF DONE:
+[ ] Service installs, starts automatically on boot (verify with an actual
+    reboot test, not just `net start`)
+[ ] SvcStop performs graceful shutdown without data loss (test by
+    generating events, stopping, and confirming offline queue has them
+    all)
+[ ] Service auto-restarts on crash (kill -9 equivalent / TerminateProcess
+    the service process externally, confirm Windows restarts it per
+    A16's recovery config)
+
+--------------------------------------------------------------------------------
+MODULE A18: INSTALLER / STARTUP PACKAGING
+--------------------------------------------------------------------------------
+PURPOSE: A real installer, not "run this python script manually" — this
+is what makes the project feel like a product during your demo.
+
+APPROACH: Inno Setup (or WiX/MSI if you want to go further) wrapping a
+PyInstaller-built single executable of the agent.
+
+RESPONSIBILITIES:
+- PyInstaller spec bundling the agent + dependencies into one .exe.
+- Inno Setup script that: prompts for (or accepts silently via a config
+  file / command-line param for the FYP demo) the enrollment token and
+  manager URL, installs the .exe + PowerShell script templates + default
+  config into Program Files, runs the service install step
+  (`agent.exe --install`), starts the service.
+- Uninstaller: only runs if invoked by an Administrator (Windows installer
+  elevation is the natural enforcement point here — document this as
+  satisfying "only administrators can uninstall" from the original
+  requirements).
+
+DEFINITION OF DONE:
+[ ] Single-file installer that takes a manager URL + enrollment token and
+    results in a fully running, registered, self-starting agent with no
+    other manual steps
+[ ] Uninstall requires elevation and cleanly removes the service + files
+    (except quarantine directory — offer to preserve or wipe, your
+    choice, document it)
+
+================================================================================
+SECTION 7 — AGENT NETWORK CONNECTIVITY MONITOR (A-network)
+================================================================================
+MODULE: connectivity_monitor.py
+PURPOSE: Central authority on "are we online" that OfflineQueue,
+HeartbeatSender, and WebSocketClient all consult/report to, so the offline
+behavior described throughout SECTION 6 is coordinated rather than each
+module guessing independently.
+
+class ConnectivityMonitor:
+    def __init__(self, transport: SecureTransport): ...
+    def report_success(self) -> None: ...
+    def report_failure(self) -> None:
+        """After N consecutive failures (configurable, default 3),
+        transitions internal state to OFFLINE and fires an
+        on_offline callback (e.g. logs locally; nothing to send to
+        manager since we're offline by definition)."""
+    def is_online(self) -> bool: ...
+    def register_on_reconnect(self, callback: Callable) -> None:
+        """OfflineSyncManager.flush_on_reconnect subscribes here."""
+
+TESTS: state transitions correctly after threshold failures; reconnect
+callback fires exactly once per online transition (not repeatedly while
+already online).
+
+================================================================================
+SECTION 8 — DASHBOARD (React + TypeScript)
+================================================================================
+Build one page at a time, in this order, each as its own PR/session:
+
+1. Login page — username/password (+ MFA code field, conditionally shown
+   after a first-pass login attempt indicates MFA is required) — calls M1.
+2. Overview/Home — summary cards (total agents, online/offline count,
+   open alerts by severity, current avg risk score) + a recent alerts
+   feed via WebSocket (M6, M13).
+3. Endpoints (Agents) list — table with hostname, status, risk score
+   (color-coded by level), last seen, department, department filter,
+   search. Row click -> Endpoint Detail page (heartbeat history chart via
+   Recharts, timeline via M14, "Isolate" / "Logoff User" quick-action
+   buttons -> M12).
+4. Alerts — filterable/sortable table (severity, status, agent), bulk
+   status update, click-through to Alert Detail (linked telemetry event
+   raw JSON viewer, linked MITRE technique card, linked rule that fired).
+5. Incidents — list + detail (linked alerts, linked agents, status
+   workflow buttons, notes field).
+6. MITRE ATT&CK Matrix — heatmap grid (tactics as columns, techniques as
+   rows/cells) color-intensity by matched-rule-count, powered by M10's
+   coverage-matrix endpoint; click a cell -> filtered alert list for that
+   technique.
+7. Threat Intel — searchable indicator table, manual add form, "sync now"
+   button (admin only) -> M9.
+8. Timeline (agent-scoped and incident-scoped views, reusable component).
+9. Policies — list, create/edit form with a visual condition builder
+   (start with a raw JSON editor for MVP, upgrade to a visual builder if
+   time allows), "Test policy" button hitting the dry-run endpoint (M11)
+   and showing would-match results before saving/enabling.
+10. Rules — list, create/edit form (same condition-builder component
+    reused from Policies), enable/disable toggle, MITRE technique picker.
+11. Settings — enrollment token generator/list, policy group management,
+    certificate expiry list (M15).
+12. Users — user list/create/edit, role assignment (admin only) -> M2.
+13. Reports — exportable summary (PDF or CSV) of alerts/incidents over a
+    date range — a nice-to-have for your final report/demo, build last.
+14. Audit Log — searchable/filterable table (admin only) -> M16.
+
+CROSS-CUTTING FRONTEND REQUIREMENTS:
+- Auth: store access token in memory (not localStorage, to reduce XSS
+  token theft risk), refresh token flow via an httpOnly cookie OR a
+  silent-refresh pattern — pick one and document the tradeoff.
+- API client: a single typed client (generated from the FastAPI OpenAPI
+  schema via openapi-typescript, or hand-written with TanStack Query) so
+  every page consumes the same typed contract as the backend.
+- WebSocket hook: a single `useLiveUpdates()` hook wrapping the
+  /dashboard/ws connection, feeding a shared store that pages subscribe
+  to (alerts feed, endpoint status changes) — avoid each page opening its
+  own WS connection.
+- RBAC-aware UI: hide/disable actions the current user's role can't
+  perform (mirrors M2's permissions — but the backend remains the real
+  enforcement point, frontend hiding is UX only, never security).
+
+================================================================================
+SECTION 9 — SECURITY REQUIREMENTS CHECKLIST (cross-cutting, verify at the end)
+================================================================================
+[ ] All manager<->agent traffic over mTLS, no plaintext HTTP anywhere
+[ ] JWT algorithm allowlisted explicitly (RS256), "none" alg rejected
+[ ] Refresh tokens rotated on every use, stored only as hashes
+[ ] Passwords: argon2id, minimum policy enforced
+[ ] All commands signed and expiry-checked (replay protection)
+[ ] PowerShell executor never accepts free-form strings, only allowlisted
+    templates with typed/validated parameters
+[ ] RBAC enforced server-side on every mutating endpoint
+[ ] Audit log covers every state-changing security action
+[ ] Certificate revocation actually enforced at the TLS layer (test this,
+    don't just trust the DB flag)
+[ ] No secrets in source control (.env, cert private keys, DB credentials
+    all gitignored, example .env.example committed instead)
+[ ] Rate limiting on authentication endpoints
+[ ] SQL injection: SQLAlchemy ORM used throughout, no raw string-formatted
+    SQL
+[ ] CORS restricted to the actual dashboard origin in production config
+
+================================================================================
+SECTION 10 — TESTING STRATEGY SUMMARY
+================================================================================
+Per-module: unit tests (pure logic, mocked dependencies) + integration
+tests (real test DB via a docker-compose test service or SQLite for
+speed where the module allows it).
+System-level (build these once most modules exist):
+- End-to-end: register a test agent -> send telemetry that matches a
+  known rule -> confirm alert created -> confirm risk score updated ->
+  confirm policy fires -> confirm signed command dispatched -> confirm
+  (against a mocked/sandboxed response engine) the correct action was
+  requested.
+- Offline/reconnect: simulate agent losing connectivity mid-session,
+  generating events, reconnecting, confirm zero data loss and correct
+  ordering.
+- Load: simulate N agents (start with 10, then 50) sending telemetry
+  concurrently, measure Manager response times and DB write throughput —
+  gives you real numbers for your final report's "performance" chapter.
+- Failure injection: kill the agent process mid-response-action, confirm
+  the service watchdog restarts it and the command isn't silently lost
+  (command status should reflect 'failed' or be retryable, not stuck in
+  'sent' forever — consider a command TTL/expiry sweep job on the manager
+  side for this exact scenario).
+
+================================================================================
+SECTION 11 — WHAT TO SAY TO THE AI, EXACTLY (template)
+================================================================================
+Copy this, fill in the blanks, paste with SECTION 0 + the one module
+section you're building:
+
+"""
+I'm building [MODULE ID and NAME] from my Zero Trust EDR blueprint
+(attached above, in SECTION 0 + the module-specific section). Implement
+this module exactly as specified — every class, every method signature,
+every exception, every API endpoint, every test case listed. Do not add
+features not listed. Do not skip anything listed. If any part of the spec
+is ambiguous or conflicts with something else, stop and ask me instead of
+guessing. Start by restating the module's Definition of Done checklist,
+then implement.
+"""
+
+================================================================================
+END OF BLUEPRINT
+================================================================================

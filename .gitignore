@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+ENV/
+build/
+dist/
+*.spec
+
+# Environment & Secrets
+.env
+*.env
+!*.env.example
+certificates/
+manager/certs/
+agent/certs/
+*.pem
+*.key
+*.crt
+*.csr
+*.pfx
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# IDE / Editor
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# OS
+Thumbs.db
+Desktop.ini

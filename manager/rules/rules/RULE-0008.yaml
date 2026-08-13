@@ -1,0 +1,18 @@
+rule_code: "RULE-0008"
+name: "Windows Security Event Log Cleared"
+category: "defense_evasion"
+severity: "critical"
+mitre_technique_id: "T1070.001"
+score_impact: 40
+enabled: true
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "log"
+    - field: "data.event_id"
+      op: "eq"
+      value: 1102
+false_positive_notes: "System administrators performing maintenance."
+references:
+  - "https://attack.mitre.org/techniques/T1070/001/"

@@ -1,0 +1,18 @@
+rule_code: "RULE-0003"
+name: "New Scheduled Task Created"
+category: "persistence"
+severity: "medium"
+mitre_technique_id: "T1053.005"
+score_impact: 15
+enabled: true
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "log"
+    - field: "data.event_id"
+      op: "eq"
+      value: 4698
+false_positive_notes: "Software updates regularly schedule tasks."
+references:
+  - "https://attack.mitre.org/techniques/T1053/005/"

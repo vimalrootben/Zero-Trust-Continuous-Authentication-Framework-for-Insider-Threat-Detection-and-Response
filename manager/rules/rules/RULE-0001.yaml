@@ -1,0 +1,24 @@
+rule_code: "RULE-0001"
+name: "Unsigned executable dropped in TEMP"
+category: "execution"
+severity: "high"
+mitre_technique_id: "T1059"
+score_impact: 20
+enabled: true
+condition:
+  all:
+    - field: "collector_type"
+      op: "eq"
+      value: "file"
+    - field: "data.change_type"
+      op: "eq"
+      value: "created"
+    - field: "data.file_path"
+      op: "contains_icase"
+      value: "temp"
+    - field: "data.file_path"
+      op: "regex"
+      value: "\\.(exe|dll|ps1|bat)$"
+false_positive_notes: "Legitimate software installers might extract temporary executables."
+references:
+  - "https://attack.mitre.org/techniques/T1059/"
