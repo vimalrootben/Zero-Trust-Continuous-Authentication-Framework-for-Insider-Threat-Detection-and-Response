@@ -247,7 +247,7 @@ c:\ztav2\
 │   ├── install_agent.py           # Automated Agent Installer Script
 │   └── inno_setup.iss             # Inno Setup Script
 ├── scripts/                       # System & Utility Scripts
-│   ├── generate_certs.py          # PKI Root CA & mTLS Cert Generator
+│   ├── generate_certs.py          
 │   ├── seed_db.py                 # Initial Roles, Permissions & Admin User
 │   └── import_mitre_attack.py     # MITRE ATT&CK Database Importer
 ├── ZEROTRUST_EDR_BLUEPRINT.txt    # Architecture Master Blueprint
@@ -264,8 +264,8 @@ c:\ztav2\
 * **Operating System**: Windows 10/11/Server (for Agent host), Linux/macOS/Windows (for Manager/Dashboard).
 * **Python**: Version 3.12 or higher.
 * **Node.js**: Version 18.x or 20.x with `npm`.
-* **Database**: PostgreSQL 15+ (or run via Docker Compose).
-* **Cache**: Redis 7+ (or run via Docker Compose).
+* **Database**: SQLite (built-in zero-config, default) or PostgreSQL 15+ (Production / Docker Compose).
+* **Cache**: Redis 7+ (Optional / Docker Compose).
 
 ---
 
@@ -273,8 +273,8 @@ c:\ztav2\
 
 #### Step 1: Clone Repository & Create Virtual Environment
 ```bash
-git clone https://github.com/your-org/zerotrust-edr.git
-cd zerotrust-edr
+git clone https://github.com/vimalrootben/Zero-Trust-Continuous-Authentication-Framework-for-Insider-Threat-Detection-and-Response.git
+cd Zero-Trust-Continuous-Authentication-Framework-for-Insider-Threat-Detection-and-Response
 
 # Create and activate Python virtual environment
 python -m venv .venv
@@ -290,17 +290,22 @@ pip install -r manager/requirements.txt
 ```
 
 #### Step 3: Configure Environment Variables
-Copy `.env.example` to `.env` and adjust configuration values as needed:
+Copy `.env.example` to `.env` or use SQLite zero-config default:
 ```bash
 cp .env.example .env
 ```
 Key settings in `.env`:
-* `POSTGRES_USER=postgres`
-* `POSTGRES_PASSWORD=postgres_secure_pass`
-* `POSTGRES_DB=zerotrust_edr`
-* `DATABASE_URL=postgresql+asyncpg://postgres:postgres_secure_pass@localhost:5432/zerotrust_edr`
-* `REDIS_URL=redis://localhost:6379/0`
-* `HEARTBEAT_INTERVAL_SECONDS=30`
+```env
+ENVIRONMENT=development
+# Zero-Config SQLite (Default):
+DATABASE_URL=sqlite+aiosqlite:///zerotrust_edr.db
+
+# Or Production PostgreSQL:
+# DATABASE_URL=postgresql+asyncpg://postgres:postgres_secure_pass@localhost:5432/zerotrust_edr
+
+REDIS_URL=redis://localhost:6379/0
+HEARTBEAT_INTERVAL_SECONDS=30
+```
 
 #### Step 4: Generate PKI Certificates (mTLS)
 Run the automated certificate generator to create Root CA, Manager Server Certs, and Agent Client Certs:
@@ -309,8 +314,8 @@ python scripts/generate_certs.py
 ```
 This generates all required SSL/mTLS certificates into `certificates/` and `manager/certs/`.
 
-#### Step 5: Start Infrastructure Stack (Docker)
-Start PostgreSQL and Redis services using Docker Compose:
+#### Step 5: (Optional) Start Infrastructure Stack via Docker
+If using PostgreSQL and Redis in production mode:
 ```bash
 docker-compose -f deployment/docker-compose.yml up -d postgres redis
 ```
@@ -318,20 +323,21 @@ docker-compose -f deployment/docker-compose.yml up -d postgres redis
 #### Step 6: Initialize Database & Seed Records
 Run database migrations and populate default permissions, roles, and admin accounts:
 ```bash
-# Seed initial database permissions and superadmin user
-python scripts/seed_db.py
+# Seed initial database permissions, rules, and superadmin user
+python seed_db_records.py
 ```
 *Default Admin Credentials:*
 * **Username**: `admin`
-* **Password**: `AdminSecure123!` (Note: Change upon first login!)
+* **Password**: `AdminSecure123!` *(Change upon first login)*
 
 #### Step 7: Launch Manager Backend Server
 Start the FastAPI application using Uvicorn:
 ```bash
-uvicorn manager.api.main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn manager.api.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 * API Documentation: `http://localhost:8000/docs`
 * OpenAPI Schema: `http://localhost:8000/openapi.json`
+> **Note**: Dynamic CORS is enabled for all local ports (`localhost:5173`, `localhost:5174`, etc.).
 
 #### Step 8: Launch React Dashboard
 Open a new terminal window:
@@ -340,7 +346,7 @@ cd dashboard
 npm install
 npm run dev
 ```
-* Dashboard URL: `http://localhost:5173`
+* Dashboard URL: `http://localhost:5173` (or `http://localhost:5174` if port 5173 is in use)
 
 #### Step 9: Install & Run Agent on Endpoint
 On the target Windows endpoint machine:
@@ -348,7 +354,7 @@ On the target Windows endpoint machine:
 # Install agent requirements
 pip install -r agent/requirements.txt
 
-# Run installer script to configure configuration and service
+# Run installer script to configure service
 python installer/install_agent.py
 
 # Launch agent process/service
@@ -403,5 +409,4 @@ pytest agent/tests -v --cov=agent
 ## 📜 License & Compliance
 
 Developed as a Zero Trust Continuous Authentication & EDR Platform. Designed following NIS2, NIST SP 800-207 (Zero Trust Architecture), and MITRE ATT&CK framework guidelines.
-#   Z e r o - T r u s t - C o n t i n u o u s - A u t h e n t i c a t i o n - F r a m e w o r k - f o r - I n s i d e r - T h r e a t - D e t e c t i o n - a n d - R e s p o n s e  
- 
+#   Z e r o - T r u s t - C o n t i n u o u s - A u t h e n t i c a t i o n - F r a m e w o r k - f o r - I n s i d e r - T h r e a t - D e t e c t i o n - a n d - R e s p o n s e
