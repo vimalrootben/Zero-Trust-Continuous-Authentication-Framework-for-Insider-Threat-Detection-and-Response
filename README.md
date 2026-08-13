@@ -403,3 +403,5 @@ pytest agent/tests -v --cov=agent
 ## 📜 License & Compliance
 
 Developed as a Zero Trust Continuous Authentication & EDR Platform. Designed following NIS2, NIST SP 800-207 (Zero Trust Architecture), and MITRE ATT&CK framework guidelines.
+#   Z e r o - T r u s t - C o n t i n u o u s - A u t h e n t i c a t i o n - F r a m e w o r k - f o r - I n s i d e r - T h r e a t - D e t e c t i o n - a n d - R e s p o n s e  
+ 
