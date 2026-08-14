@@ -37,6 +37,11 @@ export function useLiveUpdates() {
           const alert = data.payload as Alert;
           setAlerts(prev => [alert, ...prev]);
         }
+
+        // Dispatch window event for specific component reactive listeners
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('edr-ws-message', { detail: data }));
+        }
       } catch (err) {
         console.error('Failed to parse WebSocket message', err);
       }

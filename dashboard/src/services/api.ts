@@ -14,15 +14,60 @@ export interface Agent {
   agent_version: string | null;
 }
 
+export interface AlertResponseItem {
+  id: string;
+  alert_id: string;
+  agent_id: string;
+  action: string;
+  status: string;
+  requested_by?: string;
+  authorized_by?: string;
+  command_id?: string;
+  correlation_id?: string;
+  requested_at?: string;
+  started_at?: string;
+  completed_at?: string;
+  result_json?: any;
+  error_message?: string;
+}
+
 export interface Alert {
   id: string;
+  alert_id?: string;
   agent_id: string;
+  policy_id?: string;
+  rule_id?: string;
+  correlation_id?: string;
+  telemetry_event_id?: string;
   title: string;
   description: string;
   severity: string;
+  risk_score?: number;
+  risk_level?: string;
+  source?: string;
+  event_type?: string;
+  process_name?: string;
+  process_id?: number;
+  file_path?: string;
+  remote_ip?: string;
+  remote_port?: number;
+  username?: string;
+  mitre_tactic?: string;
+  mitre_technique_id?: string;
   status: string;
   assigned_to?: string;
+  detected_at?: string;
   created_at: string;
+  updated_at?: string;
+  resolved_at?: string;
+  response_status?: string;
+  response_action?: string;
+  response_requested_at?: string;
+  response_started_at?: string;
+  response_completed_at?: string;
+  response_result?: any;
+  response_error?: string;
+  responses?: AlertResponseItem[];
 }
 
 export interface TimelineEvent {
@@ -105,6 +150,49 @@ export interface Role {
   id: string;
   name: string;
   description?: string;
+}
+
+export interface ListeningPort {
+  id: string;
+  agent_id: string;
+  protocol: string;
+  local_address: string;
+  local_port: number;
+  pid: number;
+  process_name: string;
+  process_path?: string;
+  username?: string;
+  state: string;
+  last_seen_at: string;
+}
+
+export interface NetworkEvent {
+  id: string;
+  agent_id: string;
+  event_type: string;
+  protocol: string;
+  local_address: string;
+  local_port: number;
+  remote_address: string;
+  remote_port: number;
+  pid: number;
+  process_name: string;
+  process_path?: string;
+  username?: string;
+  direction: string;
+  severity?: string;
+  timestamp: string;
+}
+
+export interface Command {
+  id: string;
+  agent_id: string;
+  command_type: string;
+  payload_json?: any;
+  status: string;
+  issued_at: string;
+  executed_at?: string;
+  result_json?: any;
 }
 
 export interface TelemetryEvent {
@@ -209,6 +297,33 @@ class ApiClient {
       if (Array.isArray(data)) return { items: data, total: data.length };
       return { items: [], total: 0 };
     } catch { return { items: [], total: 0 }; }
+  }
+
+  async getAlert(id: string): Promise<Alert | null> {
+    try {
+      return await this.request(`/api/v1/alerts/${id}`);
+    } catch {
+      return null;
+    }
+  }
+
+  async acknowledgeAlert(id: string): Promise<Alert> {
+    return this.request(`/api/v1/alerts/${id}/acknowledge`, { method: 'POST' });
+  }
+
+  async investigateAlert(id: string): Promise<Alert> {
+    return this.request(`/api/v1/alerts/${id}/investigate`, { method: 'POST' });
+  }
+
+  async resolveAlert(id: string): Promise<Alert> {
+    return this.request(`/api/v1/alerts/${id}/resolve`, { method: 'POST' });
+  }
+
+  async executeAlertResponse(alertId: string, actionEndpoint: string, params: any = {}): Promise<AlertResponseItem> {
+    return this.request(`/api/v1/alerts/${alertId}/responses/${actionEndpoint}`, {
+      method: 'POST',
+      body: JSON.stringify({ params }),
+    });
   }
 
   // ── Telemetry ─────────────────────────────────────────────
@@ -344,11 +459,40 @@ class ApiClient {
     });
   }
 
-  async getCommands(agentId: string): Promise<any[]> {
+  async getCommands(agentId: string): Promise<Command[]> {
     try {
       const data = await this.request(`/api/v1/commands/agent/${agentId}`);
       return Array.isArray(data) ? data : [];
-    } catch { return []; }
+    } catch {
+      return [];
+    }
+  }
+
+  // ── Network Telemetry & Sockets ───────────────────────────
+  async getListeningPorts(agentId: string): Promise<ListeningPort[]> {
+    try {
+      const data = await this.request(`/api/v1/agents/${agentId}/network/ports`);
+      return Array.isArray(data) ? data : [];
+    } catch {
+      return [];
+    }
+  }
+
+  async getNetworkEvents(agentId: string, limit = 100): Promise<NetworkEvent[]> {
+    try {
+      const data = await this.request(`/api/v1/agents/${agentId}/network/events?limit=${limit}`);
+      return Array.isArray(data) ? data : [];
+    } catch {
+      return [];
+    }
+  }
+
+  async isolateAgent(agentId: string): Promise<any> {
+    return this.issueCommand(agentId, 'DISABLE_NETWORK');
+  }
+
+  async unisolateAgent(agentId: string): Promise<any> {
+    return this.issueCommand(agentId, 'ENABLE_NETWORK');
   }
 }
 

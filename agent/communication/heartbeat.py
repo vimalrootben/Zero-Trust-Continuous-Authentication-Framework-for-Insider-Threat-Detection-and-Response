@@ -69,13 +69,44 @@ class HeartbeatSender:
         from agent.communication.transport import TransportError, AuthenticationError
 
         stats = self.collect_resource_stats()
+        
+        import platform
+        import socket
+        
+        hostname = socket.gethostname()
+        os_ver = f"{platform.system()} {platform.release()}"
+        ip_addr = "127.0.0.1"
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip_addr = s.getsockname()[0]
+            s.close()
+        except Exception:
+            pass
+
+        # Check if local firewall has EDR isolation rule active
+        is_isolated = False
+        if platform.system().lower() == "windows":
+            try:
+                import subprocess
+                res = subprocess.run('netsh advfirewall firewall show rule name="EDR_Host_Isolation_Outbound"', shell=True, capture_output=True, text=True, timeout=3)
+                if res.returncode == 0 and "EDR_Host_Isolation_Outbound" in res.stdout:
+                    is_isolated = True
+            except Exception:
+                pass
+
         payload = {
             "agent_id": self.agent_id,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "cpu_usage": stats.cpu_percent,
             "memory_usage": stats.memory_percent,
             "disk_usage": stats.disk_percent,
-            "status": "active",
+            "status": "isolated" if is_isolated else "active",
+            "hostname": hostname,
+            "os_version": os_ver,
+            "agent_version": getattr(self.config, "agent_version", "1.0.0"),
+            "ip_address": ip_addr,
+            "isolation_status": "ISOLATED" if is_isolated else "NOT_ISOLATED",
         }
 
         try:

@@ -228,7 +228,8 @@ async def receive_heartbeat(
     In production, this endpoint is protected by mTLS — the TLS layer validates
     the agent's client certificate. In test/dev, we rely on the payload's agent_id.
     """
-    svc = HeartbeatService(db)
+    from manager.api.routers.websocket import ws_manager
+    svc = HeartbeatService(db, ws_manager=ws_manager)
     try:
         await svc.record_heartbeat(
             agent_id=payload.agent_id,
@@ -236,6 +237,11 @@ async def receive_heartbeat(
             memory=payload.memory_usage,
             disk=payload.disk_usage,
             status=payload.status,
+            hostname=payload.hostname,
+            os_version=payload.os_version,
+            agent_version=payload.agent_version,
+            ip_address=payload.ip_address,
+            isolation_status=payload.isolation_status,
         )
         await db.commit()
     except ValueError as e:

@@ -27,6 +27,10 @@ async def agent_websocket_endpoint(
     On connection, flushes all pending commands for the agent immediately.
     """
     await ws_manager.connect_agent(agent_id, websocket)
+    try:
+        await ws_manager.broadcast_agent_connected(agent_id)
+    except Exception as exc:
+        logger.debug(f"[WS] Broadcast connected notice failed: {exc}")
 
     try:
         # Flush pending commands on connect
@@ -67,17 +71,32 @@ async def agent_websocket_endpoint(
                     await db.commit()
             elif msg_type == "result":
                 cmd_id = uuid.UUID(data.get("command_id"))
-                cmd_row = await db.get(Command, cmd_id)
-                if cmd_row:
-                    cmd_row.status = CommandStatus.SUCCESS if data.get("status") == "success" else CommandStatus.FAILED
-                    cmd_row.result_json = data.get("output")
-                    await db.commit()
+                success = (data.get("status") == "success") or data.get("success", False)
+                output = data.get("output") or data.get("details") or {}
+                error_msg = data.get("error") or data.get("message")
+                
+                from manager.alerts.response_service import ResponseService
+                response_service = ResponseService(db, ws_manager=ws_manager)
+                await response_service.handle_agent_result(
+                    command_id=cmd_id,
+                    success=success,
+                    output=output,
+                    error_msg=error_msg
+                )
 
     except WebSocketDisconnect:
         ws_manager.disconnect_agent(agent_id)
+        try:
+            await ws_manager.broadcast_agent_disconnected(agent_id)
+        except Exception:
+            pass
     except Exception as exc:
         logger.error(f"[WS] Error in agent websocket loop for {agent_id}: {exc}")
         ws_manager.disconnect_agent(agent_id)
+        try:
+            await ws_manager.broadcast_agent_disconnected(agent_id)
+        except Exception:
+            pass
 
 @router.websocket("/dashboard/ws")
 async def dashboard_websocket_endpoint(

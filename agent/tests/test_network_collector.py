@@ -81,6 +81,73 @@ def test_network_collector_delta_detection():
     assert len(events) == 1
     ev = events[0]
     assert ev.collector_type == "network"
-    assert ev.event_type == "network_connection"
+    assert ev.event_type == "CONNECTION_OPENED"
     assert ev.data["remote_addr"] == "1.2.3.4"
     assert ev.severity == "high"
+
+
+def test_network_collector_listening_ports():
+    events = []
+    provider = MockNetworkConnectionProvider([
+        [
+            {
+                "local_addr": "0.0.0.0",
+                "local_port": 8000,
+                "remote_addr": "",
+                "remote_port": 0,
+                "protocol": "TCP",
+                "status": "LISTENING",
+                "is_listening": True,
+                "pid": 4321,
+                "process_name": "uvicorn.exe",
+                "process_path": "C:\\Python\\uvicorn.exe",
+                "process_user": "SYSTEM",
+                "direction": "listen",
+            }
+        ],
+        [
+            {
+                "local_addr": "0.0.0.0",
+                "local_port": 8000,
+                "remote_addr": "",
+                "remote_port": 0,
+                "protocol": "TCP",
+                "status": "LISTENING",
+                "is_listening": True,
+                "pid": 4321,
+                "process_name": "uvicorn.exe",
+                "process_path": "C:\\Python\\uvicorn.exe",
+                "process_user": "SYSTEM",
+                "direction": "listen",
+            },
+            {
+                "local_addr": "127.0.0.1",
+                "local_port": 9090,
+                "remote_addr": "",
+                "remote_port": 0,
+                "protocol": "TCP",
+                "status": "LISTENING",
+                "is_listening": True,
+                "pid": 5555,
+                "process_name": "nc.exe",
+                "process_path": "C:\\Tools\\nc.exe",
+                "process_user": "Administrator",
+                "direction": "listen",
+            }
+        ]
+    ])
+
+    collector = NetworkCollector(
+        event_sink=events.append,
+        provider=provider,
+        poll_interval=0.1,
+    )
+    collector.start()
+    time.sleep(0.3)
+    collector.stop()
+
+    assert len(events) >= 2
+    # Baseline + new listen started
+    event_types = [e.event_type for e in events]
+    assert "listen_baseline" in event_types
+    assert "LISTEN_STARTED" in event_types

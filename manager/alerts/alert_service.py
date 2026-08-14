@@ -16,9 +16,13 @@ logger = logging.getLogger(__name__)
 
 # Valid state machine transitions
 ALLOWED_TRANSITIONS = {
-    AlertStatus.OPEN: {AlertStatus.ACKNOWLEDGED, AlertStatus.INVESTIGATING, AlertStatus.RESOLVED, AlertStatus.FALSE_POSITIVE},
-    AlertStatus.ACKNOWLEDGED: {AlertStatus.INVESTIGATING, AlertStatus.RESOLVED, AlertStatus.FALSE_POSITIVE},
-    AlertStatus.INVESTIGATING: {AlertStatus.RESOLVED, AlertStatus.FALSE_POSITIVE, AlertStatus.OPEN},
+    AlertStatus.OPEN: {AlertStatus.ACKNOWLEDGED, AlertStatus.INVESTIGATING, AlertStatus.RESPONSE_PENDING, AlertStatus.RESOLVED, AlertStatus.FALSE_POSITIVE},
+    AlertStatus.ACKNOWLEDGED: {AlertStatus.INVESTIGATING, AlertStatus.RESPONSE_PENDING, AlertStatus.RESOLVED, AlertStatus.FALSE_POSITIVE},
+    AlertStatus.INVESTIGATING: {AlertStatus.RESPONSE_PENDING, AlertStatus.RESOLVED, AlertStatus.FALSE_POSITIVE, AlertStatus.OPEN},
+    AlertStatus.RESPONSE_PENDING: {AlertStatus.RESPONDING, AlertStatus.CANCELLED, AlertStatus.RESOLVED},
+    AlertStatus.RESPONDING: {AlertStatus.RESOLVED, AlertStatus.RESPONSE_FAILED},
+    AlertStatus.RESPONSE_FAILED: {AlertStatus.RESPONSE_PENDING, AlertStatus.INVESTIGATING, AlertStatus.RESOLVED},
+    AlertStatus.CANCELLED: {AlertStatus.INVESTIGATING, AlertStatus.OPEN},
     AlertStatus.RESOLVED: {AlertStatus.OPEN},
     AlertStatus.FALSE_POSITIVE: {AlertStatus.OPEN},
 }
@@ -29,6 +33,7 @@ class AlertFilters:
     status: Optional[str] = None
     severity: Optional[str] = None
     rule_id: Optional[uuid.UUID] = None
+    policy_id: Optional[uuid.UUID] = None
 
 @dataclass
 class PaginatedAlerts:
@@ -60,9 +65,23 @@ class AlertService:
         title: str,
         description: str,
         severity: str,
+        policy_id: Optional[uuid.UUID] = None,
         rule_id: Optional[uuid.UUID] = None,
         telemetry_event_id: Optional[uuid.UUID] = None,
         mitre_technique_id: Optional[str] = None,
+        correlation_id: Optional[str] = None,
+        risk_score: float = 0.0,
+        risk_level: Optional[str] = None,
+        source: str = "endpoint_telemetry",
+        event_type: Optional[str] = None,
+        process_name: Optional[str] = None,
+        process_id: Optional[int] = None,
+        file_path: Optional[str] = None,
+        remote_ip: Optional[str] = None,
+        remote_port: Optional[int] = None,
+        username: Optional[str] = None,
+        mitre_tactic: Optional[str] = None,
+        detected_at: Optional[datetime] = None,
         db_session: Optional[AsyncSession] = None
     ) -> Alert:
         session = db_session or self.db_session
@@ -70,15 +89,32 @@ class AlertService:
             raise ValueError("Database session required to create alert")
 
         sev_enum = Severity(severity) if isinstance(severity, str) else severity
+        now = datetime.now(timezone.utc)
+        generated_alert_id = f"ALT-{now.strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
 
         alert = Alert(
+            alert_id=generated_alert_id,
             agent_id=agent_id,
+            policy_id=policy_id,
+            rule_id=rule_id,
+            correlation_id=correlation_id,
+            telemetry_event_id=telemetry_event_id,
             title=title,
             description=description,
             severity=sev_enum,
-            rule_id=rule_id,
-            telemetry_event_id=telemetry_event_id,
+            risk_score=risk_score,
+            risk_level=risk_level,
+            source=source,
+            event_type=event_type,
+            process_name=process_name,
+            process_id=process_id,
+            file_path=file_path,
+            remote_ip=remote_ip,
+            remote_port=remote_port,
+            username=username,
+            mitre_tactic=mitre_tactic,
             mitre_technique_id=mitre_technique_id,
+            detected_at=detected_at or now,
             status=AlertStatus.OPEN
         )
 
@@ -108,11 +144,12 @@ class AlertService:
         # WebSocket push if available
         if self.ws_connection_manager:
             try:
-                await self.ws_connection_manager.broadcast({
+                await self.ws_connection_manager.broadcast_alert_to_dashboards({
                     "type": "ALERT_CREATED",
                     "alert_id": str(alert.id),
                     "title": title,
                     "severity": str(severity),
+                    "status": alert.status.value,
                     "agent_id": str(agent_id)
                 })
             except Exception as exc:
@@ -126,6 +163,17 @@ class AlertService:
                 logger.error(f"Failed to enqueue notification worker job: {exc}")
 
         return alert
+
+    async def get_alert(
+        self,
+        alert_id: uuid.UUID,
+        db_session: Optional[AsyncSession] = None
+    ) -> Optional[Alert]:
+        session = db_session or self.db_session
+        if session is None:
+            return None
+        result = await session.execute(select(Alert).where(Alert.id == alert_id))
+        return result.scalar_one_or_none()
 
     async def update_status(
         self,
@@ -157,16 +205,35 @@ class AlertService:
 
         await session.flush()
 
+        # Specific audit action mapping
+        action_map = {
+            AlertStatus.ACKNOWLEDGED: AuditAction.ALERT_ACKNOWLEDGED,
+            AlertStatus.INVESTIGATING: AuditAction.ALERT_INVESTIGATION_STARTED,
+            AlertStatus.RESOLVED: AuditAction.ALERT_RESOLVED,
+        }
+        audit_act = action_map.get(target_status, AuditAction.ALERT_STATUS_UPDATED)
+
         # Audit Log
         await self.audit_logger.log(
             actor_type="user" if actor_id else "system",
             actor_id=actor_id,
-            action=AuditAction.ALERT_STATUS_UPDATED,
+            action=audit_act,
             target_type="alert",
             target_id=alert.id,
             details={"old_status": current_status.value, "new_status": target_status.value},
             db_session=session
         )
+
+        if self.ws_connection_manager:
+            try:
+                await self.ws_connection_manager.broadcast_alert_to_dashboards({
+                    "type": "ALERT_STATUS_UPDATED",
+                    "alert_id": str(alert.id),
+                    "old_status": current_status.value,
+                    "new_status": target_status.value
+                })
+            except Exception as exc:
+                logger.error(f"Failed to push alert WebSocket notification: {exc}")
 
         return alert
 
@@ -227,6 +294,9 @@ class AlertService:
         if filters.rule_id:
             stmt = stmt.where(Alert.rule_id == filters.rule_id)
             count_stmt = count_stmt.where(Alert.rule_id == filters.rule_id)
+        if filters.policy_id:
+            stmt = stmt.where(Alert.policy_id == filters.policy_id)
+            count_stmt = count_stmt.where(Alert.policy_id == filters.policy_id)
 
         total_res = await session.execute(count_stmt)
         total = total_res.scalar() or 0

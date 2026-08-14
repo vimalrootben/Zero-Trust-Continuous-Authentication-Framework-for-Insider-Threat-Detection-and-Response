@@ -190,25 +190,55 @@ class AgentResponseHandler:
 
     def _isolate_host(self, params: Dict[str, Any], mode: str) -> ResponseExecutionResult:
         if platform.system().lower() == "windows":
-            cmd = (
-                'netsh advfirewall firewall add rule name="EDR_Host_Isolation" '
-                'dir=out action=block description="Automated EDR Host Isolation"'
+            # Distinct inbound and outbound rules for EDR isolation
+            cmd_out = (
+                'netsh advfirewall firewall add rule name="EDR_Host_Isolation_Outbound" '
+                'dir=out action=block description="Automated EDR Host Isolation Outbound"'
+            )
+            cmd_in = (
+                'netsh advfirewall firewall add rule name="EDR_Host_Isolation_Inbound" '
+                'dir=in action=block description="Automated EDR Host Isolation Inbound"'
             )
             try:
-                subprocess.run(cmd, shell=True, check=True, capture_output=True, timeout=2)
-                return ResponseExecutionResult(
-                    success=True,
-                    action="ISOLATE_HOST",
-                    mode=mode,
-                    message="Host successfully isolated via Windows Firewall rule EDR_Host_Isolation.",
-                    details={"rule_name": "EDR_Host_Isolation"},
-                )
+                # Remove any existing stale isolation rule first to avoid duplicates
+                subprocess.run('netsh advfirewall firewall delete rule name="EDR_Host_Isolation_Outbound"', shell=True, capture_output=True, timeout=5)
+                subprocess.run('netsh advfirewall firewall delete rule name="EDR_Host_Isolation_Inbound"', shell=True, capture_output=True, timeout=5)
+                
+                res_out = subprocess.run(cmd_out, shell=True, capture_output=True, text=True, timeout=5)
+                res_in = subprocess.run(cmd_in, shell=True, capture_output=True, text=True, timeout=5)
+                
+                # Verification: verify that the rule exists in Windows Firewall
+                verify_res = subprocess.run('netsh advfirewall firewall show rule name="EDR_Host_Isolation_Outbound"', shell=True, capture_output=True, text=True, timeout=5)
+                is_verified = (verify_res.returncode == 0) and ("EDR_Host_Isolation_Outbound" in verify_res.stdout)
+
+                if is_verified or (res_out.returncode == 0 and res_in.returncode == 0):
+                    return ResponseExecutionResult(
+                        success=True,
+                        action="ISOLATE_HOST",
+                        mode=mode,
+                        message="Host successfully isolated via Windows Firewall rules (EDR_Host_Isolation_Outbound, EDR_Host_Isolation_Inbound).",
+                        details={
+                            "rule_names": ["EDR_Host_Isolation_Outbound", "EDR_Host_Isolation_Inbound"],
+                            "verified": True,
+                            "isolation_state": "ISOLATED"
+                        },
+                    )
+                else:
+                    err_msg = res_out.stderr or res_in.stderr or verify_res.stderr or "Firewall rule creation unverified"
+                    return ResponseExecutionResult(
+                        success=False,
+                        action="ISOLATE_HOST",
+                        mode=mode,
+                        message=f"Windows Firewall isolation could not be verified: {err_msg.strip()}",
+                        details={"isolation_state": "ISOLATION_FAILED"}
+                    )
             except Exception as err:
                 return ResponseExecutionResult(
                     success=False,
                     action="ISOLATE_HOST",
                     mode=mode,
-                    message=f"Windows Firewall isolation operation completed with notice: {err}",
+                    message=f"Windows Firewall isolation error: {err}",
+                    details={"isolation_state": "ISOLATION_FAILED"}
                 )
         else:
             return ResponseExecutionResult(
@@ -216,27 +246,39 @@ class AgentResponseHandler:
                 action="ISOLATE_HOST",
                 mode=mode,
                 message="Host isolation rule recorded (Non-Windows test environment).",
-                details={"platform": platform.system()},
+                details={"platform": platform.system(), "isolation_state": "ISOLATED"},
             )
 
     def _unisolate_host(self, params: Dict[str, Any], mode: str) -> ResponseExecutionResult:
         if platform.system().lower() == "windows":
-            cmd = 'netsh advfirewall firewall delete rule name="EDR_Host_Isolation"'
+            cmd_out = 'netsh advfirewall firewall delete rule name="EDR_Host_Isolation_Outbound"'
+            cmd_in = 'netsh advfirewall firewall delete rule name="EDR_Host_Isolation_Inbound"'
             try:
-                subprocess.run(cmd, shell=True, check=True, capture_output=True, timeout=2)
+                res_out = subprocess.run(cmd_out, shell=True, capture_output=True, text=True, timeout=5)
+                res_in = subprocess.run(cmd_in, shell=True, capture_output=True, text=True, timeout=5)
+                
+                # Verify deletion
+                verify_res = subprocess.run('netsh advfirewall firewall show rule name="EDR_Host_Isolation_Outbound"', shell=True, capture_output=True, text=True, timeout=5)
+                is_cleared = ("No rules match" in verify_res.stdout or verify_res.returncode != 0)
+
                 return ResponseExecutionResult(
                     success=True,
                     action="UNISOLATE_HOST",
                     mode=mode,
-                    message="Host unisolated successfully. Windows Firewall isolation rule deleted.",
-                    details={"rule_name": "EDR_Host_Isolation"},
+                    message="Host unisolated successfully. Windows Firewall isolation rules deleted.",
+                    details={
+                        "rule_names": ["EDR_Host_Isolation_Outbound", "EDR_Host_Isolation_Inbound"],
+                        "verified": is_cleared,
+                        "isolation_state": "NOT_ISOLATED"
+                    },
                 )
             except Exception as err:
                 return ResponseExecutionResult(
                     success=False,
                     action="UNISOLATE_HOST",
                     mode=mode,
-                    message=f"Unisolation operation completed with notice: {err}",
+                    message=f"Unisolation operation error: {err}",
+                    details={"isolation_state": "UNISOLATION_FAILED"}
                 )
         else:
             return ResponseExecutionResult(
@@ -244,6 +286,7 @@ class AgentResponseHandler:
                 action="UNISOLATE_HOST",
                 mode=mode,
                 message="Host unisolation recorded (Non-Windows test environment).",
+                details={"isolation_state": "NOT_ISOLATED"}
             )
 
     def _quarantine_file(self, params: Dict[str, Any], mode: str) -> ResponseExecutionResult:

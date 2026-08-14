@@ -37,10 +37,12 @@ class HeartbeatMonitor:
         session_maker: async_sessionmaker,
         offline_threshold_seconds: int,
         alert_service=None,
+        ws_manager=None,
     ) -> None:
         self.session_maker = session_maker
         self.offline_threshold_seconds = offline_threshold_seconds
         self.alert_service = alert_service
+        self.ws_manager = ws_manager
         self._running = False
 
     async def check_stale_agents(self) -> list[uuid.UUID]:
@@ -50,6 +52,7 @@ class HeartbeatMonitor:
         For each such agent:
           1. Set status = 'offline'.
           2. Create exactly one low-severity alert (only on transition, not every check).
+          3. Broadcast agent.status_changed via WebSocket.
 
         Returns:
             List of agent IDs that were transitioned to offline in this pass.
@@ -73,6 +76,15 @@ class HeartbeatMonitor:
                     f"agent.status.offline: agent={agent.id} hostname={agent.hostname} "
                     f"last_seen={agent.last_seen_at}"
                 )
+
+                # Broadcast WebSocket offline event
+                if self.ws_manager:
+                    try:
+                        await self.ws_manager.broadcast_agent_status_change(
+                            agent.id, AgentStatus.OFFLINE.value, agent.last_seen_at.isoformat() if agent.last_seen_at else None
+                        )
+                    except Exception as exc:
+                        logger.debug(f"Failed broadcasting offline event: {exc}")
 
                 # Create alert on transition (alert_service is optional during tests)
                 if self.alert_service:

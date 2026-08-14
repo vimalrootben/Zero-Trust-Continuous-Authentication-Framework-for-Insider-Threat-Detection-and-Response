@@ -2,6 +2,55 @@
 Zero Trust EDR Platform - Project Update & Change History Log (update.txt)
 ===============================================================================
 
+[2026-08-14 05:52:00 IST] - TASK 3: Real Network Monitoring + Real-Time Endpoint/Agent State
+-------------------------------------------------------------------------------
+1. Real Network Telemetry & Socket Enumeration (agent/collectors/network_collector.py):
+   - Enriched socket enumeration in `NetworkConnectionProvider.get_connections()` with normalized field aliases (`local_ip`/`local_addr`, `remote_ip`/`remote_addr`, `username`/`process_user`, `state`/`status`, `direction`, `is_listening`, `pid`, `process_name`, `process_path`).
+   - Ensured 100% compatibility with policy detection rules (`POL-NET-001` through `POL-NET-005`) and frontend tables without mock data.
+   - Enforced delta event classification: `CONNECTION_OPENED`, `CONNECTION_CLOSED`, `LISTEN_STARTED`, `LISTEN_STOPPED`.
+
+2. Real-Time WebSocket Infrastructure (manager/websocket/connection_manager.py, manager/api/routers/websocket.py):
+   - Added standard ISO-8601 timestamps and normalized envelope schema (`event`, `type`, `agent_id`, `timestamp`, `payload`, `data`).
+   - Implemented `broadcast_agent_connected` (`agent.connected`) and `broadcast_agent_disconnected` (`agent.disconnected`) on agent WebSocket connect/disconnect lifecycle events.
+   - Standardized `broadcast_network_event`, `broadcast_isolation_state`, `broadcast_heartbeat`, and `broadcast_agent_status_change`.
+
+3. Network Telemetry REST APIs (manager/api/routers/telemetry.py):
+   - Enhanced `GET /api/v1/agents/{agent_id}/network/ports` with robust fallback parsing, returning active listening ports aggregated directly from real host telemetry (requires `agents:read`).
+   - Enhanced `GET /api/v1/agents/{agent_id}/network/events` returning historical connection opened/closed events (requires `telemetry:read`).
+
+4. Network Containment Audit Trail (manager/alerts/response_service.py, manager/audit/constants.py):
+   - Extended `AuditAction` enum with `NETWORK_ISOLATION_REQUESTED`, `NETWORK_ISOLATION_SUCCEEDED`, `NETWORK_ISOLATION_FAILED`, `NETWORK_UNISOLATION_REQUESTED`, `NETWORK_UNISOLATION_SUCCEEDED`, `NETWORK_UNISOLATION_FAILED`, `AGENT_CONNECTED`, `AGENT_DISCONNECTED`, `AGENT_STATUS_CHANGED`.
+   - Recorded granular audit logs upon command dispatch and agent execution result processing.
+
+5. Comprehensive Automated Test Suite (manager/tests/test_task3_network_and_state.py):
+   - Created 20 automated tests validating all specified requirements:
+     1. Agent registration
+     2. Agent authentication & unknown rejection
+     3. Real heartbeat recording & state updates
+     4. Online state tracking
+     5. Offline detection via HeartbeatMonitor
+     6. Agent reconnect flow
+     7. Listening port collection
+     8. Network event delta detection
+     9. Network event database persistence & queries
+     10. Real-time WebSocket event broadcasting
+     11. Network isolation request & signature
+     12. Network isolation execution & verification
+     13. Network isolation failure handling
+     14. Network unisolation execution & rule deletion
+     15. Duplicate isolation prevention (idempotency)
+     16. RBAC enforcement on network endpoints
+     17. Audit logging of network actions
+     18. Configurable timeout settings
+     19. WebSocket reconnect lifecycle
+     20. Database persistence & relational integrity
+
+6. Verification Results:
+   - Task 3 test suite: 20 passed, 0 failed.
+   - Full project test suite: 157 passed, 0 failed.
+
+===============================================================================
+
 [2026-08-13 17:42:00 IST] - Project Audit, CORS Fix, Detection Rules & README Update
 -------------------------------------------------------------------------------
 1. Backend & API Fixes:
@@ -22,5 +71,42 @@ Zero Trust EDR Platform - Project Update & Change History Log (update.txt)
    - Updated `README.md` with accurate repository URLs, zero-config SQLite setup instructions, dynamic CORS guidance, and clean quickstart steps.
    - Updated `.gitignore` to ignore `.quarantine/` and `logs/`.
    - Committed and pushed all changes to GitHub branch `main`.
+
+===============================================================================
+
+[2026-08-13 17:05:00 IST] - TASK 2: Complete Alert Model + Real Response Engine
+-------------------------------------------------------------------------------
+1. Alert Model Extended (manager/database/models/alert.py):
+   - Added fields: alert_id, policy_id, correlation_id, risk_score, risk_level,
+     source, event_type, process_name, process_id, file_path, remote_ip,
+     remote_port, username, mitre_tactic, detected_at.
+   - Added response tracking columns: response_status, response_action,
+     response_requested_at, response_started_at, response_completed_at,
+     response_result, response_error.
+   - Extended AlertStatus enum with: RESPONSE_PENDING, RESPONDING,
+     RESPONSE_FAILED, CANCELLED.
+
+2. AlertResponse Model Created (manager/database/models/alert_response.py):
+   - New ORM model/table `alert_responses` for full response attempt history.
+
+3. Alert Lifecycle State Machine (manager/alerts/alert_service.py):
+   - Extended ALLOWED_TRANSITIONS with full response lifecycle states.
+   - create_alert() accepts all new metadata params + generates unique alert_id.
+   - update_status() emits specific audit events per transition.
+
+4. ResponseService Created (manager/alerts/response_service.py):
+   - execute_response(): validates, prevents duplicates, creates signed Command
+     (SHA-256), dispatches to Agent via CommandDispatcher over WebSocket.
+   - handle_agent_result(): processes real Agent result, auto-resolves alert.
+
+5. API Router Updated (manager/api/routers/alerts.py):
+   - GET /alerts/{id}, POST /alerts/{id}/acknowledge|investigate|resolve
+   - POST /alerts/{id}/responses/process-terminate|network-isolate|
+     network-unisolate|logout|lock|quarantine
+   - GET /alerts/{id}/responses
+
+6. Database (zerotrust_edr.db): 26 tables including alert_responses. Alembic at head (5c29a88e9102).
+
+7. Tests: 135 passed, 0 failed (12 new tests in test_alert_response_engine.py + test_real_windows_responses.py).
 
 ===============================================================================

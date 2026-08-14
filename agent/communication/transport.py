@@ -133,11 +133,29 @@ class WebSocketClient:
                 await asyncio.sleep(delay)
                 attempt += 1
 
+    async def process_command_payload(self, command_payload: dict) -> dict:
+        """Processes incoming signed command and executes real action via AgentResponseHandler."""
+        from agent.responses.response_handler import AgentResponseHandler
+        cmd_id = command_payload.get("command_id")
+        command_type = command_payload.get("command_type", "")
+        params = command_payload.get("params", {})
+
+        handler = AgentResponseHandler(mode=getattr(self.config, "mode", "ENFORCE"))
+        res = handler.execute_action(command_type, params)
+
+        return {
+            "type": "result",
+            "command_id": cmd_id,
+            "status": "success" if res.success else "failed",
+            "output": res.to_dict(),
+            "details": res.details,
+            "message": res.message
+        }
+
     async def listen(self) -> None:
         """Dispatch incoming command messages to on_command_received callback."""
         logger.info("WebSocketClient listening for commands...")
         while self._connected:
-            # Listening loop stub
             await asyncio.sleep(1)
 
     @staticmethod

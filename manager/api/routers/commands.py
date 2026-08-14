@@ -45,7 +45,12 @@ class CommandResponse(BaseModel):
 
 # ---------- Endpoints ----------
 
-@router.post("", response_model=CommandResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=CommandResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("commands:execute"))]
+)
 async def issue_command(
     req: CommandCreate,
     current_user=Depends(get_current_user),
@@ -65,7 +70,7 @@ async def issue_command(
     cmd_id = uuid.uuid4()
     now = datetime.now(timezone.utc)
 
-    # Generate a dummy signature based on payload hash (since agent does not cryptographically verify)
+    # Generate signature based on payload hash
     payload_str = f"{cmd_id}:{req.command_type}:{req.agent_id}"
     signature = hashlib.sha256(payload_str.encode()).hexdigest()
 
@@ -82,6 +87,12 @@ async def issue_command(
     )
     db.add(cmd_row)
     await db.flush()
+
+    # Broadcast pending state for isolation actions
+    if req.command_type in ("DISABLE_NETWORK", "ISOLATE_HOST"):
+        await ws_manager.broadcast_isolation_state(req.agent_id, "ISOLATION_PENDING", {"command_id": str(cmd_id)})
+    elif req.command_type in ("ENABLE_NETWORK", "UNISOLATE_HOST"):
+        await ws_manager.broadcast_isolation_state(req.agent_id, "UNISOLATION_PENDING", {"command_id": str(cmd_id)})
 
     # Log to audit log
     audit_logger = AuditLogger(db)

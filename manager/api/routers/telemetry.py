@@ -103,6 +103,18 @@ async def receive_telemetry_batch(
         except Exception as eval_err:
             logger.error(f"Error evaluating policy for event {event_dto.event_id}: {eval_err}")
 
+        # Broadcast live network events over WebSocket
+        if event_dto.collector_type == "network":
+            try:
+                from manager.api.routers.websocket import ws_manager
+                await ws_manager.broadcast_network_event(
+                    agent_id=payload.agent_id,
+                    event_type=event_dto.event_type,
+                    event_data=event_dto.data,
+                )
+            except Exception as ws_err:
+                logger.debug(f"Failed broadcasting network event: {ws_err}")
+
     # 5. Record sync log entry
     sync_log = OfflineSyncLog(
         agent_id=payload.agent_id,
@@ -199,3 +211,105 @@ async def get_agent_telemetry(
         }
         for e in events
     ]
+
+
+@telemetry_router.get(
+    "/agents/{agent_id}/network/ports",
+    summary="Get real-time listening ports for a specific agent",
+    dependencies=[Depends(require_permission("agents:read"))],
+)
+async def get_agent_listening_ports(
+    agent_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Returns active listening ports gathered by the NetworkCollector on the Windows host.
+    Extracts the latest state from telemetry_events where collector_type='network'.
+    """
+    # Fetch recent network events that capture listening sockets
+    query = select(TelemetryEvent).where(
+        TelemetryEvent.agent_id == agent_id,
+        TelemetryEvent.collector_type == "network"
+    ).order_by(TelemetryEvent.timestamp.desc()).limit(300)
+
+    result = await db.execute(query)
+    events = result.scalars().all()
+
+    # Aggregate latest state per (protocol, local_addr, local_port)
+    ports_map = {}
+    for ev in reversed(events):  # chronological order to apply latest state
+        raw = ev.raw_data or {}
+        is_listening = raw.get("is_listening") or ev.event_type in ("LISTEN_STARTED", "listen_baseline")
+        is_stopped = ev.event_type == "LISTEN_STOPPED"
+
+        lport = raw.get("local_port")
+        if lport and (is_listening or is_stopped):
+            laddr = raw.get("local_addr") or raw.get("local_ip") or "0.0.0.0"
+            proto = raw.get("protocol", "TCP")
+            key = f"{proto}:{laddr}:{lport}"
+            if is_stopped:
+                ports_map.pop(key, None)
+            else:
+                ports_map[key] = {
+                    "id": str(ev.id),
+                    "agent_id": str(agent_id),
+                    "protocol": proto,
+                    "local_address": laddr,
+                    "local_port": lport,
+                    "pid": raw.get("pid") or 0,
+                    "process_name": raw.get("process_name") or "Unknown",
+                    "process_path": raw.get("process_path") or "",
+                    "username": raw.get("username") or raw.get("process_user") or "",
+                    "state": raw.get("state") or raw.get("status") or "LISTENING",
+                    "last_seen_at": ev.timestamp.isoformat(),
+                }
+
+    return list(ports_map.values())
+
+
+@telemetry_router.get(
+    "/agents/{agent_id}/network/events",
+    summary="Get recent network connection events for a specific agent",
+    dependencies=[Depends(require_permission("telemetry:read"))],
+)
+async def get_agent_network_events(
+    agent_id: uuid.UUID,
+    event_type: Optional[str] = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Returns real historical network events (CONNECTION_OPENED, CONNECTION_CLOSED, LISTEN_STARTED) for the agent.
+    """
+    query = select(TelemetryEvent).where(
+        TelemetryEvent.agent_id == agent_id,
+        TelemetryEvent.collector_type == "network"
+    )
+    if event_type:
+        query = query.where(TelemetryEvent.event_type == event_type)
+
+    query = query.order_by(TelemetryEvent.timestamp.desc()).limit(limit)
+    result = await db.execute(query)
+    events = result.scalars().all()
+
+    items = []
+    for ev in events:
+        raw = ev.raw_data or {}
+        items.append({
+            "id": str(ev.id),
+            "agent_id": str(ev.agent_id),
+            "event_type": ev.event_type,
+            "protocol": raw.get("protocol", "TCP"),
+            "local_address": raw.get("local_addr") or raw.get("local_ip") or "",
+            "local_port": raw.get("local_port", 0),
+            "remote_address": raw.get("remote_addr") or raw.get("remote_ip") or "",
+            "remote_port": raw.get("remote_port", 0),
+            "pid": raw.get("pid", 0),
+            "process_name": raw.get("process_name", ""),
+            "process_path": raw.get("process_path", ""),
+            "username": raw.get("username") or raw.get("process_user") or "",
+            "direction": raw.get("direction", "outbound"),
+            "severity": getattr(ev, "severity", "low"),
+            "timestamp": ev.timestamp.isoformat(),
+        })
+    return items

@@ -51,6 +51,11 @@ class HeartbeatPayload(BaseModel):
     memory_usage: float
     disk_usage: float
     status: str = "active"
+    hostname: Optional[str] = None
+    os_version: Optional[str] = None
+    agent_version: Optional[str] = None
+    ip_address: Optional[str] = None
+    isolation_status: Optional[str] = None
 
 
 class HeartbeatResponse(BaseModel):

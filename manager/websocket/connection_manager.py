@@ -1,5 +1,6 @@
 import logging
 import uuid
+from datetime import datetime, timezone
 from typing import Dict, Set, Optional, Any
 from fastapi import WebSocket
 
@@ -72,19 +73,125 @@ class ConnectionManager:
                     logger.error(f"[WS] Error broadcasting alert to user {user_id}: {exc}")
                     self.disconnect_dashboard(user_id, ws)
 
-    async def broadcast_telemetry_update(self, agent_id: uuid.UUID, summary: Dict[str, Any]) -> None:
-        """Broadcasts live telemetry updates to dashboard sessions."""
+    async def broadcast_agent_connected(self, agent_id: uuid.UUID, metadata: Optional[Dict[str, Any]] = None) -> None:
+        """Broadcasts agent connection event to active dashboards."""
+        now = datetime.now(timezone.utc).isoformat()
         message = {
-            "type": "telemetry_summary",
+            "type": "AGENT_CONNECTED",
+            "event": "agent.connected",
+            "agent_id": str(agent_id),
+            "timestamp": now,
             "payload": {
                 "agent_id": str(agent_id),
-                "summary": summary
+                "status": "ONLINE",
+                "last_seen_at": now,
+                "metadata": metadata or {}
+            },
+            "data": {
+                "status": "ONLINE",
+                "last_seen_at": now
             }
         }
+        await self._broadcast_to_dashboards(message)
+
+    async def broadcast_agent_disconnected(self, agent_id: uuid.UUID) -> None:
+        """Broadcasts agent disconnection event to active dashboards."""
+        now = datetime.now(timezone.utc).isoformat()
+        message = {
+            "type": "AGENT_DISCONNECTED",
+            "event": "agent.disconnected",
+            "agent_id": str(agent_id),
+            "timestamp": now,
+            "payload": {
+                "agent_id": str(agent_id),
+                "status": "OFFLINE",
+                "last_seen_at": now
+            },
+            "data": {
+                "status": "OFFLINE",
+                "last_seen_at": now
+            }
+        }
+        await self._broadcast_to_dashboards(message)
+
+    async def broadcast_agent_status_change(self, agent_id: uuid.UUID, status: str, last_seen_at: Optional[str] = None) -> None:
+        """Broadcasts agent status change to all active dashboard sessions."""
+        now = datetime.now(timezone.utc).isoformat()
+        message = {
+            "type": "AGENT_STATUS_CHANGED",
+            "event": "agent.status_changed",
+            "agent_id": str(agent_id),
+            "timestamp": now,
+            "payload": {
+                "agent_id": str(agent_id),
+                "status": status,
+                "last_seen_at": last_seen_at or now
+            },
+            "data": {
+                "status": status,
+                "last_seen_at": last_seen_at or now
+            }
+        }
+        await self._broadcast_to_dashboards(message)
+
+    async def broadcast_network_event(self, agent_id: uuid.UUID, event_type: str, event_data: Dict[str, Any]) -> None:
+        """Broadcasts real-time network connection or port events to dashboard sessions."""
+        now = datetime.now(timezone.utc).isoformat()
+        message = {
+            "type": "NETWORK_EVENT",
+            "event": f"network.{event_type.lower()}",
+            "agent_id": str(agent_id),
+            "timestamp": now,
+            "payload": {
+                "agent_id": str(agent_id),
+                "event_type": event_type,
+                "data": event_data
+            },
+            "data": event_data
+        }
+        await self._broadcast_to_dashboards(message)
+
+    async def broadcast_isolation_state(self, agent_id: uuid.UUID, isolation_status: str, details: Optional[Dict[str, Any]] = None) -> None:
+        """Broadcasts network isolation state changes to dashboard sessions."""
+        now = datetime.now(timezone.utc).isoformat()
+        message = {
+            "type": "ISOLATION_STATE_CHANGED",
+            "event": f"network.{isolation_status.lower()}",
+            "agent_id": str(agent_id),
+            "timestamp": now,
+            "payload": {
+                "agent_id": str(agent_id),
+                "isolation_status": isolation_status,
+                "details": details or {}
+            },
+            "data": {
+                "isolation_status": isolation_status,
+                "details": details or {}
+            }
+        }
+        await self._broadcast_to_dashboards(message)
+
+    async def broadcast_heartbeat(self, agent_id: uuid.UUID, stats: Dict[str, Any]) -> None:
+        """Broadcasts periodic heartbeat updates to dashboard sessions."""
+        now = datetime.now(timezone.utc).isoformat()
+        message = {
+            "type": "AGENT_HEARTBEAT",
+            "event": "agent.heartbeat",
+            "agent_id": str(agent_id),
+            "timestamp": now,
+            "payload": {
+                "agent_id": str(agent_id),
+                "stats": stats
+            },
+            "data": stats
+        }
+        await self._broadcast_to_dashboards(message)
+
+    async def _broadcast_to_dashboards(self, message: Dict[str, Any]) -> None:
         for user_id, websockets in list(self.active_dashboards.items()):
             for ws in list(websockets):
                 try:
                     await ws.send_json(message)
                 except Exception as exc:
-                    logger.error(f"[WS] Error broadcasting telemetry to user {user_id}: {exc}")
+                    logger.error(f"[WS] Error broadcasting to dashboard user {user_id}: {exc}")
                     self.disconnect_dashboard(user_id, ws)
