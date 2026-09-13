@@ -15,6 +15,7 @@ Updated: 2026-09-14 (Asia/Calcutta)
 - Added centralized validation that blocks invalid rule creation, updates, and reactivation without changing valid stored rules.
 - Bounded regex matching to 4096 input characters and 25 ms, with explicit timeout/limit evidence in condition traces.
 - Added immutable rule definition history, rollback-as-new-version, linked-policy deletion protection, and version-stamped match/incident evidence.
+- Started the live manager (PID `24580`) and `agent-local` (PID `19328`) using authenticated process-local agent credentials; dashboard and agent API listen on ports 8000/8080.
 
 ## Source state
 
@@ -45,6 +46,7 @@ Updated: 2026-09-14 (Asia/Calcutta)
 - Baseline: 48 passed, 65 setup errors in 2.82s; errors are `PermissionError [WinError 5]` creating pytest temp/cache directories, so this is not a valid code-failure baseline.
 - Warning: Requests reports no acceptable character-detection dependency under the current Python 3.14.7 environment.
 - Runtime limitation: Sysmon channel was absent (exit 15007) and Security log access was denied (exit 5); heartbeats still succeeded.
+- Live verification: dashboard `GET /` returned HTTP 200; authenticated heartbeat returned HTTP 200 and offline sync returned HTTP 201. The old offline cache signature is invalid under the fresh process-local token and was safely rejected.
 
 ## Next task
 
