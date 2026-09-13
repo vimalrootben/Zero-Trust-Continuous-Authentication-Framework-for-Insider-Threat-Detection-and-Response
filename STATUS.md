@@ -20,7 +20,7 @@ Updated: 2026-09-14 (Asia/Calcutta)
 
 - Baseline commit: `a2fc14e` (`chore: establish imported project baseline`).
 - Baseline tag: `baseline-2026-09-13` (annotated).
-- Current implementation commit: `2deb54e97d54981f0d95a42141a9bdd382ee3507`; branch: `feat/rule-version-rollback` (rule-version work pending commit).
+- Current implementation commit: `8ef1125e39c84ecdac45fa74f334bbfcc9711952`; branch: `feat/rule-version-rollback`.
 - Git executable: `C:\Program Files\Git\cmd\git.exe`; repository-local author is `Codex Agent <codex@local>`.
 - Access-control base commit: `7f0ad172c49355aa85b742345fecfccc30da182d`; branch: `feat/permission-access`.
 - Rule-validation base commit: `cb634cf9a1588f5a142ea8a51a3ce1f7983a548c`; branch: `fix/rule-activation-validation`.
