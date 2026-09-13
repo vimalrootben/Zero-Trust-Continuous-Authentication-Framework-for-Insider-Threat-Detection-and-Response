@@ -1,5 +1,6 @@
 """Shared, explainable condition trees from blueprint M8/M11/A13."""
 
+import json
 import re
 from typing import Any
 
@@ -14,8 +15,24 @@ class ConditionEvaluator:
     OPERATORS = {"eq", "ne", "gt", "gte", "lt", "lte", "in", "not_in",
                  "contains", "contains_icase", "regex", "exists", "not_exists"}
 
+    MAX_DEPTH = 8
+    MAX_NODES = 128
+    MAX_GROUP_CHILDREN = 32
+    MAX_MEMBERSHIP_VALUES = 100
+    MAX_FIELD_LENGTH = 128
+    MAX_REGEX_LENGTH = 512
+
     def validate(self, condition: dict) -> None:
         """Reject ambiguous, empty, unsupported, or malformed conditions."""
+        counter = [0]
+        self._validate(condition, 1, counter)
+
+    def _validate(self, condition: dict, depth: int, counter: list) -> None:
+        if depth > self.MAX_DEPTH:
+            raise InvalidConditionError(f"Condition tree exceeds maximum depth {self.MAX_DEPTH}")
+        counter[0] += 1
+        if counter[0] > self.MAX_NODES:
+            raise InvalidConditionError(f"Condition tree exceeds maximum {self.MAX_NODES} nodes")
         if not isinstance(condition, dict) or not condition:
             raise InvalidConditionError("Condition must be a nonempty object")
         groups = set(condition) & {"all", "any", "not"}
@@ -25,29 +42,46 @@ class ConditionEvaluator:
             group = next(iter(groups))
             children = condition[group]
             if group == "not":
-                self.validate(children)
+                self._validate(children, depth + 1, counter)
             else:
                 if not isinstance(children, list) or not children:
                     raise InvalidConditionError("AND/OR requires a nonempty array")
+                if len(children) > self.MAX_GROUP_CHILDREN:
+                    raise InvalidConditionError(f"AND/OR supports at most {self.MAX_GROUP_CHILDREN} children")
                 for child in children:
-                    self.validate(child)
+                    self._validate(child, depth + 1, counter)
             return
         if set(condition) - {"field", "op", "value"}:
             raise InvalidConditionError("Unknown condition keys")
         if not isinstance(condition.get("field"), str) or not condition["field"]:
             raise InvalidConditionError("A field path is required")
+        if len(condition["field"]) > self.MAX_FIELD_LENGTH or any(not part for part in condition["field"].split(".")):
+            raise InvalidConditionError("Invalid or overlong field path")
         op = condition.get("op")
         if not isinstance(op, str) or op not in self.OPERATORS:
             raise InvalidConditionError("Unsupported operator")
         if op not in {"exists", "not_exists"} and "value" not in condition:
             raise InvalidConditionError("A comparison value is required")
-        if op in {"in", "not_in"} and not isinstance(condition["value"], list):
-            raise InvalidConditionError("Membership requires an array")
+        value = condition.get("value")
+        if op in {"in", "not_in"}:
+            if not isinstance(value, list) or not value:
+                raise InvalidConditionError("Membership requires a nonempty array")
+            if len(value) > self.MAX_MEMBERSHIP_VALUES or any(isinstance(item, (dict, list)) for item in value):
+                raise InvalidConditionError("Membership array is too large or contains structured values")
+        elif op in {"gt", "gte", "lt", "lte"} and (isinstance(value, bool) or not isinstance(value, (int, float))):
+            raise InvalidConditionError("Ordered comparison requires a number")
+        elif op in {"contains", "contains_icase", "regex"} and not isinstance(value, str):
+            raise InvalidConditionError(f"{op} requires a string")
+        elif op not in {"exists", "not_exists"} and isinstance(value, (dict, list)):
+            raise InvalidConditionError("Comparison value must be a scalar")
         if op == "regex":
+            if len(value) > self.MAX_REGEX_LENGTH:
+                raise InvalidConditionError(f"Regular expression exceeds {self.MAX_REGEX_LENGTH} characters")
             try:
-                re.compile(condition["value"])
+                re.compile(value)
             except (re.error, TypeError) as exc:
                 raise InvalidConditionError("Invalid regular expression") from exc
+
 
     def evaluate(self, condition: dict, event_data: dict) -> bool:
         """Return the real final result; use explain() for all branch results."""
@@ -98,3 +132,57 @@ class ConditionEvaluator:
                 result = False
         return {"field": condition["field"], "op": op, "expected": expected,
                 "actual": actual, "present": present, "result": bool(result)}
+
+
+class RuleValidator:
+    """Validate complete rule definitions before persistence or activation."""
+
+    SEVERITIES = {"LOW", "MEDIUM", "HIGH", "CRITICAL"}
+    CATEGORIES = {"Authentication", "Execution", "Persistence", "Privilege Escalation",
+                  "Defense Evasion", "Credential Access", "Discovery", "Lateral Movement",
+                  "Collection", "Exfiltration", "Command and Control", "General", "DEMO"}
+    RESPONSE_ACTIONS = {"MONITOR", "ALERT", "NOTIFY_SOC", "LOGOUT_USER", "LOGOFF_USER",
+                        "KILL_PROCESS", "ISOLATE_ENDPOINT"}
+    LOGIC_TYPES = {"CONDITION_TREE"}
+
+    def __init__(self):
+        self.conditions = ConditionEvaluator()
+
+    @staticmethod
+    def _required_text(rule, field, maximum):
+        value = rule.get(field)
+        if not isinstance(value, str) or not value.strip() or len(value) > maximum:
+            raise ValueError(f"{field} must be a nonempty string up to {maximum} characters")
+
+    @staticmethod
+    def _flag(rule, field):
+        value = rule.get(field)
+        if not isinstance(value, bool) and not (isinstance(value, int) and value in (0, 1)):
+            raise ValueError(f"{field} must be boolean or 0/1")
+
+    def validate(self, rule):
+        if not isinstance(rule, dict):
+            raise ValueError("Rule must be an object")
+        self._required_text(rule, "code", 64)
+        self._required_text(rule, "name", 160)
+        for field in ("description", "mitre_tactic", "mitre_technique_id"):
+            value = rule.get(field)
+            if value is not None and (not isinstance(value, str) or len(value) > 1000):
+                raise ValueError(f"{field} must be a string")
+        for field, allowed in (("category", self.CATEGORIES), ("severity", self.SEVERITIES),
+                               ("response_action", self.RESPONSE_ACTIONS), ("logic_type", self.LOGIC_TYPES)):
+            if rule.get(field) not in allowed:
+                raise ValueError(f"Invalid {field}: {rule.get(field)!r}")
+        risk = rule.get("risk_delta")
+        if isinstance(risk, bool) or not isinstance(risk, int) or not 0 <= risk <= 100:
+            raise ValueError("risk_delta must be an integer between 0 and 100")
+        self._flag(rule, "enabled")
+        self._flag(rule, "allow_offline")
+        condition = rule.get("condition")
+        if condition is None and isinstance(rule.get("condition_json"), str):
+            try:
+                condition = json.loads(rule["condition_json"])
+            except Exception as exc:
+                raise ValueError("condition_json must contain valid JSON") from exc
+        self.conditions.validate(condition)
+        return rule

@@ -21,7 +21,7 @@ from uuid import uuid4
 from zta.agent.commands.command_receiver import AgentCommandReceiver
 from zta.api.auth import OperatorAuth
 from zta.engine.correlation.engine import ZTACorrelationEngine
-from zta.engine.events.conditions import ConditionEvaluator, InvalidConditionError
+from zta.engine.events.conditions import ConditionEvaluator, InvalidConditionError, RuleValidator
 from zta.engine.events.models import ZTAEvent
 from zta.engine.events.wazuh_adapter import ZTAEventAdapter
 from zta.engine.policy.engine import PolicyDecision, ZTAPolicy, ZTAPolicyEngine
@@ -834,7 +834,18 @@ class ZTAApiHandler(SimpleHTTPRequestHandler):
             elif path == "/api/zta/rules/validate":
                 cond = payload.get("condition", payload)
                 try:
-                    self.engine.evaluator.validate(cond)
+                    if isinstance(payload, dict) and ("code" in payload or "name" in payload):
+                        candidate = dict(payload)
+                        candidate.setdefault("category", "General")
+                        candidate.setdefault("severity", "MEDIUM")
+                        candidate.setdefault("risk_delta", 15)
+                        candidate.setdefault("response_action", "ALERT")
+                        candidate.setdefault("logic_type", "CONDITION_TREE")
+                        candidate.setdefault("enabled", True)
+                        candidate.setdefault("allow_offline", False)
+                        RuleValidator().validate(candidate)
+                    else:
+                        self.engine.evaluator.validate(cond)
                     self._send_json({"valid": True, "message": "Rule condition syntax is valid"})
                 except Exception as exc:
                     self._send_json({"valid": False, "error": str(exc)}, 200)

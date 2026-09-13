@@ -1,5 +1,10 @@
 # Plan
 
+## Completed - Safe rule activation
+
+- Enforced rule field types, enums, risk bounds, operand types, and condition-tree complexity before create, update, or activation.
+- Acceptance: invalid rules are rejected without persistence; valid seeded/existing workflows pass all 129 tests.
+
 ## Completed - Authenticated permission access
 
 - Added operator creation, password login, expiring sessions, role permissions, protected reads/writes/streams, and authenticated dashboard session flow.

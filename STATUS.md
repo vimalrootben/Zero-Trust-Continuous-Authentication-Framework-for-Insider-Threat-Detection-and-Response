@@ -12,6 +12,7 @@ Updated: 2026-09-14 (Asia/Calcutta)
 - Initialized Git and recorded the imported source baseline.
 - Implemented authenticated operator users, sessions, permission enforcement, protected WebSockets, dashboard login/logout, and admin user creation.
 - Provisioned the named runtime operator `admin` with role `ADMIN`; password login was verified. Credentials are stored in ignored `admin-credentials.env` with a restricted Windows ACL.
+- Added centralized validation that blocks invalid rule creation, updates, and reactivation without changing valid stored rules.
 
 ## Source state
 
@@ -20,6 +21,7 @@ Updated: 2026-09-14 (Asia/Calcutta)
 - Current implementation commit: `aa0cf0dc8aa4f67b28688456e0e636381a92e992`; branch: `feat/permission-access`.
 - Git executable: `C:\Program Files\Git\cmd\git.exe`; repository-local author is `Codex Agent <codex@local>`.
 - Access-control base commit: `7f0ad172c49355aa85b742345fecfccc30da182d`; branch: `feat/permission-access`.
+- Rule-validation base commit: `cb634cf9a1588f5a142ea8a51a3ce1f7983a548c`; branch: `fix/rule-activation-validation`.
 - Runtime artifacts created during smoke test: `.venv/`, `zta_runtime.db`, `storage/zta_agent_local.db`, and manager/agent log files.
 
 ## Tests
@@ -29,6 +31,8 @@ Updated: 2026-09-14 (Asia/Calcutta)
 - Full regression after compatibility updates: `116 passed, 1 warning in 43.46s`.
 - Final authorization and rule/policy regression: `9 passed in 9.35s`; `git diff --check` passed.
 - Runtime admin provisioning check: account creation and password login passed against `zta_runtime.db`.
+- Rule/condition focused regression: `58 passed, 1 warning in 17.70s`.
+- Full rule compatibility regression: `129 passed, 1 warning in 52.25s`.
 - JavaScript `node --check` unavailable because Node.js is not installed; dashboard integration/assets are covered by the passing Python suite.
 - Discovery: 113 tests collected.
 - Baseline: 48 passed, 65 setup errors in 2.82s; errors are `PermissionError [WinError 5]` creating pytest temp/cache directories, so this is not a valid code-failure baseline.
@@ -37,4 +41,4 @@ Updated: 2026-09-14 (Asia/Calcutta)
 
 ## Next task
 
-Replace the bootstrap legacy admin token with a named ADMIN account in deployment, then define user disable/password-reset and session-revocation administration flows.
+Define user disable/password-reset and session-revocation administration flows, then remove the legacy bootstrap token from deployment.

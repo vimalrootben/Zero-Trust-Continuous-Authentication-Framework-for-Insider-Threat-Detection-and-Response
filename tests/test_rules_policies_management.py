@@ -232,6 +232,65 @@ def test_rule_crud_toggle_and_safe_delete(test_server):
     assert rule_id not in rule_ids
 
 
+def _valid_rule(code="RULE-VALIDATION-001"):
+    return {
+        "code": code,
+        "name": "Validated rule",
+        "category": "General",
+        "severity": "MEDIUM",
+        "risk_delta": 15,
+        "response_action": "ALERT",
+        "logic_type": "CONDITION_TREE",
+        "enabled": True,
+        "allow_offline": False,
+        "condition": {"field": "event_type", "op": "eq", "value": "PROCESS_CREATION"},
+    }
+
+
+@pytest.mark.parametrize("mutation", [
+    {"code": 123},
+    {"severity": "URGENT"},
+    {"category": "Unregistered"},
+    {"response_action": "RUN_ARBITRARY"},
+    {"logic_type": "SCRIPT"},
+    {"risk_delta": -1},
+    {"risk_delta": 101},
+    {"risk_delta": "25"},
+    {"enabled": "yes"},
+    {"condition": {"field": "risk_score", "op": "gte", "value": "high"}},
+    {"condition": {"field": "process.name", "op": "regex", "value": "["}},
+    {"condition": {"all": [{"field": "event_type", "op": "eq", "value": str(i)} for i in range(33)]}},
+])
+def test_invalid_rule_types_enums_limits_and_width_are_rejected(test_server, mutation):
+    payload = {**_valid_rule(), **mutation}
+    status, result = api_request(test_server["base_url"], "/api/zta/rules", method="POST", body=payload)
+    assert status == 400
+    assert result.get("error")
+    assert not test_server["server"].runtime[0].get_rule_by_id("RULE-VALIDATION-001")
+
+
+def test_deep_rule_update_and_invalid_reactivation_are_rejected(test_server):
+    base_url = test_server["base_url"]
+    payload = _valid_rule("RULE-VALIDATION-DEPTH")
+    status, created = api_request(base_url, "/api/zta/rules", method="POST", body=payload)
+    assert status == 201
+    rule_id = created["rule"]["rule_id"]
+
+    deep = {"field": "event_type", "op": "exists"}
+    for _ in range(8):
+        deep = {"not": deep}
+    status, result = api_request(base_url, f"/api/zta/rules/{rule_id}", method="PUT", body={"condition": deep})
+    assert status == 400
+    assert test_server["server"].runtime[0].get_rule_by_id(rule_id)["condition"] == payload["condition"]
+
+    repo = test_server["server"].runtime[0]
+    with repo.db.get_connection() as conn:
+        conn.execute("UPDATE rules SET enabled=0, severity='INVALID' WHERE rule_id=?", (rule_id,))
+    status, result = api_request(base_url, f"/api/zta/rules/{rule_id}/toggle", method="PATCH", body={"enabled": 1})
+    assert status == 400
+    assert repo.get_rule_by_id(rule_id)["enabled"] == 0
+
+
 def test_policy_crud_toggle_and_rule_linking(test_server):
     """Verifies policy creation, rule linking, inline toggling, and deletion."""
     base_url = test_server["base_url"]
