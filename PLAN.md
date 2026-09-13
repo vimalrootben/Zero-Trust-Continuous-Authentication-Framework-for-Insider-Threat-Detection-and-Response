@@ -1,5 +1,10 @@
 # Plan
 
+## Completed - Recoverable rule changes
+
+- Added immutable definition versions, append-only rollback, linked-policy deletion protection, and rule-version evidence on matches/incidents.
+- Acceptance: rollback restores prior behavior without changing IDs; linked-rule deletion returns 409; focused rule-management tests pass.
+
 ## Completed - Bounded regex evaluation
 
 - Limited regex pattern and input sizes and enforced a 25 ms timeout using the timeout-capable `regex` engine.

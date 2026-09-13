@@ -14,16 +14,18 @@ Updated: 2026-09-14 (Asia/Calcutta)
 - Provisioned the named runtime operator `admin` with role `ADMIN`; password login was verified. Credentials are stored in ignored `admin-credentials.env` with a restricted Windows ACL.
 - Added centralized validation that blocks invalid rule creation, updates, and reactivation without changing valid stored rules.
 - Bounded regex matching to 4096 input characters and 25 ms, with explicit timeout/limit evidence in condition traces.
+- Added immutable rule definition history, rollback-as-new-version, linked-policy deletion protection, and version-stamped match/incident evidence.
 
 ## Source state
 
 - Baseline commit: `a2fc14e` (`chore: establish imported project baseline`).
 - Baseline tag: `baseline-2026-09-13` (annotated).
-- Current implementation commit: `00e85d2ec60d1f53219096be64365a31a5866467`; branch: `fix/rule-activation-validation`.
+- Current implementation commit: `2deb54e97d54981f0d95a42141a9bdd382ee3507`; branch: `feat/rule-version-rollback` (rule-version work pending commit).
 - Git executable: `C:\Program Files\Git\cmd\git.exe`; repository-local author is `Codex Agent <codex@local>`.
 - Access-control base commit: `7f0ad172c49355aa85b742345fecfccc30da182d`; branch: `feat/permission-access`.
 - Rule-validation base commit: `cb634cf9a1588f5a142ea8a51a3ce1f7983a548c`; branch: `fix/rule-activation-validation`.
 - Regex-cost base commit: `1ae3ce7eed605abbc711a710a0f5acd17e920dd4`; branch: `fix/regex-evaluation-cost`.
+- Rule-version base commit: `2deb54e97d54981f0d95a42141a9bdd382ee3507`; branch: `feat/rule-version-rollback`.
 - Runtime artifacts created during smoke test: `.venv/`, `zta_runtime.db`, `storage/zta_agent_local.db`, and manager/agent log files.
 
 ## Tests
@@ -36,6 +38,7 @@ Updated: 2026-09-14 (Asia/Calcutta)
 - Rule/condition focused regression: `58 passed, 1 warning in 17.70s`.
 - Full rule compatibility regression: `129 passed, 1 warning in 52.25s`.
 - Regex/rule focused regression: `61 passed in 17.68s`; full regression: `132 passed in 53.59s`.
+- Rule-version focused regression: `22 passed in 15.23s`; full regression: `134 passed in 45.11s`. Unrestricted execution was required because sandboxed pytest temp-directory creation was denied.
 - The original long-path `.venv` could not load the `regex` extension DLL; verification used `C:\Users\vegeta\zta-venv` successfully.
 - JavaScript `node --check` unavailable because Node.js is not installed; dashboard integration/assets are covered by the passing Python suite.
 - Discovery: 113 tests collected.

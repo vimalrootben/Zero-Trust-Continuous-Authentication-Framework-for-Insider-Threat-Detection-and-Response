@@ -304,6 +304,55 @@ def test_rule_testing_endpoint_bounds_expensive_regex(test_server):
     assert result["trace"]["evaluation_error"] == "REGEX_TIMEOUT"
 
 
+def test_rule_versions_and_rollback_restore_definition(test_server):
+    base_url = test_server["base_url"]
+    original = _valid_rule("RULE-VERSION-001")
+    status, created = api_request(base_url, "/api/zta/rules", method="POST", body=original)
+    assert status == 201
+    rule_id = created["rule"]["rule_id"]
+    assert created["rule"]["current_version"] == 1
+
+    replacement = {"condition": {"field": "event_type", "op": "eq", "value": "FILE_ACCESS"}}
+    status, updated = api_request(base_url, f"/api/zta/rules/{rule_id}", method="PUT", body=replacement)
+    assert status == 200
+    assert updated["rule"]["current_version"] == 2
+
+    status, rolled_back = api_request(
+        base_url, f"/api/zta/rules/{rule_id}/rollback", method="POST", body={"version": 1}
+    )
+    assert status == 200
+    restored = rolled_back["rule"]
+    assert restored["rule_id"] == rule_id
+    assert restored["code"] == original["code"]
+    assert restored["condition"] == original["condition"]
+    assert restored["current_version"] == 3
+
+    status, history = api_request(base_url, f"/api/zta/rules/{rule_id}/versions")
+    assert status == 200
+    assert [item["version"] for item in history["versions"]] == [3, 2, 1]
+    assert history["versions"][0]["change_type"] == "ROLLBACK"
+
+
+def test_linked_rule_deletion_is_blocked(test_server):
+    base_url = test_server["base_url"]
+    status, created = api_request(base_url, "/api/zta/rules", method="POST", body=_valid_rule("RULE-LINKED-001"))
+    assert status == 201
+    rule_id = created["rule"]["rule_id"]
+    policy = {
+        "code": "POL-LINKED-001", "name": "Linked policy", "category": "General",
+        "severity": "MEDIUM", "mode": "ALERT_ONLY", "action": "ALERT",
+        "rule_id": rule_id, "min_risk": 0, "max_risk": 100, "enabled": 1,
+    }
+    status, policy_result = api_request(base_url, "/api/zta/policies", method="POST", body=policy)
+    assert status == 201
+
+    status, result = api_request(base_url, f"/api/zta/rules/{rule_id}", method="DELETE")
+    assert status == 409
+    assert "linked" in result["error"].lower()
+    assert test_server["server"].runtime[0].get_rule_by_id(rule_id)
+    assert policy_result["policy"]["policy_id"]
+
+
 def test_policy_crud_toggle_and_rule_linking(test_server):
     """Verifies policy creation, rule linking, inline toggling, and deletion."""
     base_url = test_server["base_url"]
@@ -495,6 +544,8 @@ def test_end_to_end_runtime_rule_policy_enforcement(test_server):
     assert custom_incident is not None, f"No incident found for agent-runtime-01. Got: {[i['agent_id'] for i in incidents]}"
     # Severity should be CRITICAL for mimikatz rule
     assert custom_incident["severity"] == "CRITICAL"
+    assert custom_incident["rule_version"] == 1
+    assert custom_incident["detection"]["rule_version"] == 1
     # Action taken should reflect policy response (LOGOUT_USER or NOTIFY_SOC based on risk range)
     assert custom_incident["action_taken"] in ("LOGOUT_USER", "NOTIFY_SOC", "ISOLATE_ENDPOINT", "MONITOR", "ALERT")
 
