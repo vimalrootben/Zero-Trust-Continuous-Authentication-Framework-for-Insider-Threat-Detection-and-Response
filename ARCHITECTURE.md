@@ -6,6 +6,7 @@
 - `api/`: manager HTTP/API server, operator authentication/RBAC, agent authentication, ingestion, background processing, and WebSocket publication.
 - `engine/`: canonical pipeline: correlation -> rule matching -> risk/trust update -> policy decision -> response command.
 - Rule definitions pass one shared validator at API preview, repository create/update, and disabled-to-enabled activation boundaries.
+- Policy definitions pass shared validation and are selected by the stable key `(priority, code, policy_id)`; the lowest priority number wins.
 - Regex conditions use a timeout-capable engine with bounded pattern/input sizes; timeout and limit outcomes are recorded in evaluation traces instead of blocking workers.
 - `storage/`: SQLite schema/repository for agents, events, versioned rules, policies, incidents, commands, audit, and retry state. Rule changes append immutable snapshots; rollback copies a snapshot into a new current version.
 - `dashboard/`: static operator UI served by the manager; a full-page session gate prevents dashboard rendering/data loading until login, then role-aware account management and `/api/zta/ws` are enabled.
@@ -16,7 +17,7 @@
 
 1. Agent collector -> `ZTAEventAdapter` -> canonical `ZTAEvent` -> durable local queue.
 2. Online agent posts heartbeat and telemetry to manager; offline agent evaluates only signed, cached, offline-approved rules/policies.
-3. Manager persists input, runs the unified pipeline, updates risk/trust, creates incidents and commands stamped with the matching rule version, then broadcasts updates.
+3. Manager persists input, runs the unified pipeline, updates risk/trust, deterministically selects the first eligible policy, creates incidents and commands stamped with the matching rule version, then broadcasts updates.
 4. Heartbeat returns signed configuration and pending commands. Agent validates identity/signature, executes an allowlisted action, journals the result, and reports it.
 5. Reconnect sync uploads queued records with explicit acknowledgements; only acknowledged IDs are removed.
 

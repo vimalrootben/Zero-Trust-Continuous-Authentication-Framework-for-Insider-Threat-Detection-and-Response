@@ -1,5 +1,10 @@
 # Plan
 
+## Completed - Deterministic policy selection
+
+- Added validated policy priorities, a migration preserving legacy order, stable tie-breaking, and dashboard priority controls/details.
+- Acceptance: overlapping policies consistently select by priority, code, then ID; migration and full regression tests pass.
+
 ## Completed - Operator authentication pages
 
 - Added a dedicated responsive login page, hard dashboard session gate, admin operator-management page, self-service password change, and logout-to-login behavior.

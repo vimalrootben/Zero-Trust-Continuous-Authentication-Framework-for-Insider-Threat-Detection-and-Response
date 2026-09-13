@@ -24,6 +24,7 @@ Optional/defaulted: `user: {name?, domain?, session_id?}`, `process: {name?, pat
 - Read: `/api/zta/{overview,agents,events,rules,policies,incidents,commands,timeline,audit,services,logs}` plus analytics and schema endpoints.
 - Write: rule/policy validate, test, CRUD and toggle; event retry; manual command/action execution.
 - Rule history: `GET /api/zta/rules/{id}/versions`; `POST /api/zta/rules/{id}/rollback` with `{version: positive integer}` creates a new current version. Deleting a rule linked by any policy returns HTTP 409.
+- Policy `priority` is an integer from 0 through 10000. Lower numbers are evaluated first; ties use case-insensitive `code`, then `policy_id`. Policy modes/actions/severity, risk bounds, boolean flags, strings, and optional conditions are validated on preview and mutation.
 - Live feed: WebSocket `/api/zta/ws` (alias `/ws`); browser sessions send `Sec-WebSocket-Protocol: zta-token.<access_token>`.
 - Roles: `ADMIN` has all permissions; `SOC_ANALYST` has `read`, `stream`, `response:write`; `AUDITOR` has `read`, `audit:read`, `stream`; `VIEWER` has `read`.
 - Missing/invalid operator credentials return 401; authenticated users lacking permission receive 403. `X-User-Role` is never trusted.
@@ -46,6 +47,7 @@ Optional/defaulted: `user: {name?, domain?, session_id?}`, `process: {name?, pat
 - Rule validation adds no schema migration. Existing valid persisted rules remain compatible; stored invalid rules remain readable but must be corrected before activation.
 - Regex safety adds the `regex>=2024.11.6` runtime dependency and no schema change. On Windows, avoid excessively long environment paths because extension DLL loading remains OS-path limited.
 - Migration `20260914-rule-version-history` additively creates `rule_versions`, adds `rules.current_version`, and adds nullable `rule_version` evidence fields to `rule_matches` and `incidents`. Existing rules receive version-1 snapshots; older evidence remains valid with a null version. Version history has no deleting foreign key, so retained evidence and snapshots survive rule deletion.
+- Migration `20260914-policy-priority` additively adds `policies.priority`. Existing rows receive priorities 10, 20, ... in their prior effective order (linked rules first, then minimum risk and code), preserving selection behavior; new ties are resolved deterministically.
 
 ## States
 

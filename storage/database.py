@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 
 from zta.engine.events.conditions import RuleValidator
 from zta.engine.events.models import ZTAAgent, ZTAEvent, ZTAMitre, ZTAProcess, ZTAUser, ZTAWazuhRule
+from zta.engine.policy.engine import PolicyValidator
 from zta.engine.risk.engine import RiskEvent
 from zta.engine.trust.engine import TrustState
 
@@ -189,6 +190,7 @@ class ZTADatabase:
             self._ensure_column(cursor, "policies", "last_triggered", "TEXT")
             self._ensure_column(cursor, "policies", "total_triggers", "INTEGER NOT NULL DEFAULT 0")
             self._ensure_column(cursor, "policies", "created_at", "TEXT")
+            self._ensure_column(cursor, "policies", "priority", "INTEGER NOT NULL DEFAULT 1000")
 
             # Policy Evaluations Table
             cursor.execute("""
@@ -413,6 +415,13 @@ class ZTADatabase:
                     (row["rule_id"], json.dumps(definition), row["created_at"]),
                 )
             cursor.execute("INSERT OR IGNORE INTO schema_migrations VALUES ('20260914-rule-version-history', ?)", (datetime.now(timezone.utc).isoformat(),))
+            if not cursor.execute("SELECT 1 FROM schema_migrations WHERE version='20260914-policy-priority'").fetchone():
+                existing = cursor.execute(
+                    "SELECT policy_id FROM policies ORDER BY CASE WHEN rule_id IS NOT NULL AND rule_id<>'' THEN 0 ELSE 1 END, min_risk ASC, code ASC, policy_id ASC"
+                ).fetchall()
+                for position, policy in enumerate(existing, start=1):
+                    cursor.execute("UPDATE policies SET priority=? WHERE policy_id=?", (position * 10, policy["policy_id"]))
+                cursor.execute("INSERT INTO schema_migrations VALUES ('20260914-policy-priority', ?)", (datetime.now(timezone.utc).isoformat(),))
             conn.commit()
 
     def _ensure_column(self, cursor: sqlite3.Cursor, table_name: str, column_name: str, col_def: str):
@@ -1099,7 +1108,7 @@ class ZTARepository:
         """Retrieves all adaptive policies with linked rule details and trigger statistics."""
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM policies ORDER BY min_risk ASC, code ASC")
+            cursor.execute("SELECT * FROM policies ORDER BY priority ASC, code ASC, policy_id ASC")
             policies = [dict(row) for row in cursor.fetchall()]
             for p in policies:
                 try:
@@ -1186,6 +1195,19 @@ class ZTARepository:
 
     def create_policy(self, policy_data: Dict[str, Any], actor: str = "admin", role: str = "admin") -> Dict[str, Any]:
         """Creates a new adaptive response policy in the database with audit trail."""
+        candidate = dict(policy_data) if isinstance(policy_data, dict) else policy_data
+        if isinstance(candidate, dict):
+            candidate.setdefault("severity", "HIGH")
+            candidate.setdefault("mode", "ENFORCE")
+            candidate.setdefault("action", "MONITOR")
+            candidate.setdefault("min_risk", 0)
+            candidate.setdefault("max_risk", 100)
+            candidate.setdefault("risk_threshold", 85)
+            candidate.setdefault("priority", 1000)
+            candidate.setdefault("enabled", True)
+            candidate.setdefault("allow_offline", False)
+        PolicyValidator().validate(candidate)
+        policy_data = candidate
         code = str(policy_data.get("code", "")).strip()
         name = str(policy_data.get("name", "")).strip()
         if not code or not name:
@@ -1208,6 +1230,7 @@ class ZTARepository:
         cond_json = json.dumps(cond) if cond is not None and not isinstance(cond, str) else cond
         enabled = 1 if policy_data.get("enabled", True) else 0
         allow_offline = 1 if policy_data.get("allow_offline", False) else 0
+        priority = policy_data.get("priority", 1000)
         now_iso = datetime.now(timezone.utc).isoformat()
 
         with self.db.get_connection() as conn:
@@ -1216,13 +1239,13 @@ class ZTARepository:
                 INSERT INTO policies (
                     policy_id, code, name, category, severity, rule_id, risk_threshold,
                     min_risk, max_risk, action, mode, condition_json, enabled, allow_offline,
-                    total_triggers, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+                    total_triggers, created_at, priority
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
                 """,
                 (
                     policy_id, code, name, category, severity, rule_id, risk_threshold,
                     min_risk, max_risk, action, mode, cond_json, enabled, allow_offline,
-                    now_iso,
+                    now_iso, priority,
                 ),
             )
             conn.commit()
@@ -1269,6 +1292,12 @@ class ZTARepository:
         if not policy:
             return None
 
+        if not isinstance(update_data, dict):
+            raise ValueError("Policy update must be an object")
+        candidate = {**policy, **update_data}
+        if "condition" not in update_data:
+            candidate["condition"] = policy.get("condition")
+        PolicyValidator().validate(candidate)
         name = update_data.get("name", policy["name"])
         category = update_data.get("category", policy.get("category", "General"))
         severity = update_data.get("severity", policy.get("severity", "HIGH"))
@@ -1281,6 +1310,7 @@ class ZTARepository:
         mode = update_data.get("mode", policy.get("mode", "ENFORCE"))
         enabled = 1 if update_data.get("enabled", policy.get("enabled", 1)) else 0
         allow_offline = 1 if update_data.get("allow_offline", policy.get("allow_offline", 0)) else 0
+        priority = update_data.get("priority", policy.get("priority", 1000))
 
         cond = update_data.get("condition")
         cond_json = json.dumps(cond) if cond is not None and not isinstance(cond, str) else (cond or policy.get("condition_json"))
@@ -1291,13 +1321,13 @@ class ZTARepository:
                 UPDATE policies SET
                     name = ?, category = ?, severity = ?, rule_id = ?, risk_threshold = ?,
                     min_risk = ?, max_risk = ?, action = ?, mode = ?, condition_json = ?,
-                    enabled = ?, allow_offline = ?
+                    enabled = ?, allow_offline = ?, priority = ?
                 WHERE policy_id = ? OR code = ?
                 """,
                 (
                     name, category, severity, rule_id, risk_threshold,
                     min_risk, max_risk, action, mode, cond_json,
-                    enabled, allow_offline, policy["policy_id"], policy.get("code"),
+                    enabled, allow_offline, priority, policy["policy_id"], policy.get("code"),
                 ),
             )
             conn.commit()
@@ -1342,6 +1372,10 @@ class ZTARepository:
             return None
 
         new_status = (not bool(policy.get("enabled", 1))) if enabled is None else bool(enabled)
+        if new_status:
+            candidate = dict(policy)
+            candidate["enabled"] = True
+            PolicyValidator().validate(candidate)
         val = 1 if new_status else 0
 
         with self.db.get_connection() as conn:

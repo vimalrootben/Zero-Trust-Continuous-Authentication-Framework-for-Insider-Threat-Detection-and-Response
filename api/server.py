@@ -24,7 +24,7 @@ from zta.engine.correlation.engine import ZTACorrelationEngine
 from zta.engine.events.conditions import ConditionEvaluator, InvalidConditionError, RuleValidator
 from zta.engine.events.models import ZTAEvent
 from zta.engine.events.wazuh_adapter import ZTAEventAdapter
-from zta.engine.policy.engine import PolicyDecision, ZTAPolicy, ZTAPolicyEngine
+from zta.engine.policy.engine import PolicyDecision, PolicyValidator, ZTAPolicy, ZTAPolicyEngine
 from zta.engine.risk.engine import ZTARiskEngine
 from zta.engine.trust.engine import ZTATrustEngine
 from zta.storage.database import RuleDependencyError, ZTADatabase, ZTARepository
@@ -213,6 +213,7 @@ class ZTABackgroundEngine:
                         mode=p.get("mode", "ENFORCE"),
                         condition=p.get("condition"),
                         allow_offline=bool(p.get("allow_offline", 0)),
+                        priority=p.get("priority", 1000),
                     )
                 )
             self.policy_engine.policies = policies
@@ -727,7 +728,7 @@ class ZTAApiHandler(SimpleHTTPRequestHandler):
                 rules, policies = self.repo.get_rules(), self.repo.get_policies()
                 # Version only definitions, excluding counters and evaluation history.
                 volatile = {'last_evaluated','last_matched','last_triggered','total_matches','total_triggers','recent_matches','linked_policies','recent_evaluations'}
-                definition_fields = {'rule_id','policy_id','code','name','category','severity','mitre_tactic','mitre_technique_id','risk_delta','condition','condition_json','response_action','logic_type','enabled','allow_offline','min_risk','max_risk','risk_threshold','mode','action','created_at'}
+                definition_fields = {'rule_id','policy_id','code','name','category','severity','mitre_tactic','mitre_technique_id','risk_delta','condition','condition_json','response_action','logic_type','enabled','allow_offline','min_risk','max_risk','risk_threshold','mode','action','priority','created_at'}
                 definitions = {"rules": [{k:v for k,v in r.items() if k in definition_fields} for r in rules], "policies": [{k:v for k,v in r.items() if k in definition_fields} for r in policies]}
                 version = hashlib.sha256(json.dumps(definitions, sort_keys=True).encode()).hexdigest()
                 cache = sign({**definitions, "agent_id": payload['agent_id'], "version": version,
@@ -918,10 +919,18 @@ class ZTAApiHandler(SimpleHTTPRequestHandler):
                 self._send_json({"status": "ROLLED_BACK", "rule": rule})
 
             elif path == "/api/zta/policies/validate":
-                cond = payload.get("condition")
                 try:
-                    if cond:
-                        self.engine.evaluator.validate(cond)
+                    candidate = dict(payload.get("policy", payload))
+                    candidate.setdefault("code", "POL-VALIDATE")
+                    candidate.setdefault("name", "Policy validation")
+                    candidate.setdefault("severity", "HIGH")
+                    candidate.setdefault("mode", "ENFORCE")
+                    candidate.setdefault("action", "MONITOR")
+                    candidate.setdefault("min_risk", 0)
+                    candidate.setdefault("max_risk", 100)
+                    candidate.setdefault("risk_threshold", 85)
+                    candidate.setdefault("priority", 1000)
+                    PolicyValidator().validate(candidate)
                     self._send_json({"valid": True, "message": "Policy condition syntax is valid"})
                 except Exception as exc:
                     self._send_json({"valid": False, "error": str(exc)}, 200)

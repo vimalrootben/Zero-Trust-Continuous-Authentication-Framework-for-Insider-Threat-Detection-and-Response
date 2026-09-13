@@ -17,6 +17,7 @@ Updated: 2026-09-14 (Asia/Calcutta)
 - Added immutable rule definition history, rollback-as-new-version, linked-policy deletion protection, and version-stamped match/incident evidence.
 - Live manager PID `22496` and `agent-local` PID `20404` use authenticated process-local agent credentials; dashboard and agent API listen on ports 8000/8080.
 - Added dedicated login/operator-management/password-change pages, a hard pre-session dashboard gate, and logout redirection to login.
+- Added policy validation, explicit priority, deterministic code/ID tie-breaking, legacy-order migration, and dashboard priority controls.
 
 ## Source state
 
@@ -29,6 +30,7 @@ Updated: 2026-09-14 (Asia/Calcutta)
 - Regex-cost base commit: `1ae3ce7eed605abbc711a710a0f5acd17e920dd4`; branch: `fix/regex-evaluation-cost`.
 - Rule-version base commit: `2deb54e97d54981f0d95a42141a9bdd382ee3507`; branch: `feat/rule-version-rollback`.
 - Operator-pages base commit: `b085718070c41a474b1cd3a3ec63a7c3eb44a5ba`; branch: `feat/operator-auth-pages`.
+- Policy-priority base commit: `5788dc1b1f38c22cfe87012310d82f6527dd5fe1`; branch: `feat/policy-priority-selection`.
 - Runtime artifacts created during smoke test: `.venv/`, `zta_runtime.db`, `storage/zta_agent_local.db`, and manager/agent log files.
 
 ## Tests
@@ -51,6 +53,7 @@ Updated: 2026-09-14 (Asia/Calcutta)
 - Live verification: dashboard `GET /` returned HTTP 200; authenticated heartbeat returned HTTP 200 and offline sync returned HTTP 201. The old offline cache signature is invalid under the fresh process-local token and was safely rejected.
 - Operator-pages regression: `27 passed in 19.02s`; full regression: `136 passed in 45.38s`. Static UI contract checks passed; browser screenshot QA was unavailable because no browser surface was connected.
 - Live operator-page check: dashboard returned HTTP 200 with the login page present and app shell initially hidden; unauthenticated overview returned HTTP 401.
+- Policy-priority focused regression: `72 passed in 21.03s`; migration/overlap acceptance: `2 passed in 0.25s`; full regression: `146 passed in 52.24s`.
 
 ## Next task
 

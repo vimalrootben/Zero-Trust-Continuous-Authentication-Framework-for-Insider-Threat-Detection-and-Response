@@ -9,6 +9,59 @@ from uuid import uuid4
 from zta.engine.events.conditions import ConditionEvaluator
 
 
+POLICY_ACTIONS = {"MONITOR", "ALERT", "NOTIFY_SOC", "LOGOUT_USER", "LOGOFF_USER", "KILL_PROCESS", "ISOLATE_ENDPOINT"}
+POLICY_MODES = {"ALERT_ONLY", "ENFORCE"}
+POLICY_SEVERITIES = {"LOW", "MEDIUM", "HIGH", "CRITICAL"}
+
+
+class PolicyValidator:
+    """Validates persisted policy definitions at every mutation boundary."""
+
+    def __init__(self):
+        self.evaluator = ConditionEvaluator()
+
+    def validate(self, policy: Dict[str, Any]) -> Dict[str, Any]:
+        if not isinstance(policy, dict):
+            raise ValueError("Policy must be an object")
+        for field, maximum in (("code", 64), ("name", 160)):
+            value = policy.get(field)
+            if not isinstance(value, str) or not value.strip() or len(value) > maximum:
+                raise ValueError(f"{field} must be a non-empty string up to {maximum} characters")
+        for field in ("category", "description", "rule_id"):
+            value = policy.get(field)
+            if value is not None and (not isinstance(value, str) or len(value) > 1000):
+                raise ValueError(f"{field} must be a string up to 1000 characters")
+        if policy.get("severity", "HIGH") not in POLICY_SEVERITIES:
+            raise ValueError("Unknown policy severity")
+        if policy.get("mode", "ENFORCE") not in POLICY_MODES:
+            raise ValueError("Unknown policy mode")
+        if policy.get("action", "MONITOR") not in POLICY_ACTIONS:
+            raise ValueError("Unknown policy action")
+        for field in ("min_risk", "max_risk", "risk_threshold"):
+            value = policy.get(field, 0 if field == "min_risk" else 100)
+            if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 100:
+                raise ValueError(f"{field} must be an integer from 0 through 100")
+        if policy.get("min_risk", 0) > policy.get("max_risk", 100):
+            raise ValueError("min_risk cannot exceed max_risk")
+        priority = policy.get("priority", 1000)
+        if isinstance(priority, bool) or not isinstance(priority, int) or not 0 <= priority <= 10000:
+            raise ValueError("priority must be an integer from 0 through 10000")
+        for field in ("enabled", "allow_offline"):
+            if policy.get(field, False) not in (True, False, 0, 1):
+                raise ValueError(f"{field} must be a boolean")
+        condition = policy.get("condition")
+        if condition is None and policy.get("condition_json"):
+            condition = policy["condition_json"]
+        if condition:
+            self.evaluator.validate(condition)
+        return policy
+
+
+def policy_sort_key(policy: Union["ZTAPolicy", Dict[str, Any]]):
+    value = lambda key, default=None: getattr(policy, key, default) if isinstance(policy, ZTAPolicy) else policy.get(key, default)
+    return (int(value("priority", 1000)), str(value("code", "")).casefold(), str(value("policy_id", "")).casefold())
+
+
 class PolicyEvaluationMode(str, Enum):
     """Execution mode for security policies."""
     ALERT_ONLY = "ALERT_ONLY"
@@ -51,6 +104,7 @@ class ZTAPolicy:
     mode: str = "ENFORCE"  # ALERT_ONLY or ENFORCE
     condition: Optional[Dict[str, Any]] = None
     allow_offline: bool = False
+    priority: int = 1000
 
 
 class ZTAPolicyEngine:
@@ -105,7 +159,7 @@ class ZTAPolicyEngine:
         """Evaluates policies against agent risk/trust scores and context, returning a deterministic PolicyDecision."""
         eval_context = {**(context or {}), "agent_id": agent_id,
                         "risk_score": risk_score, "trust_score": trust_score}
-        policies = sorted(self.policies, key=lambda p: 0 if p.rule_id else 1)
+        policies = sorted(self.policies, key=policy_sort_key)
         for policy in policies:
             decision = self.evaluate_single_policy(policy, eval_context)
             if decision.triggered:
