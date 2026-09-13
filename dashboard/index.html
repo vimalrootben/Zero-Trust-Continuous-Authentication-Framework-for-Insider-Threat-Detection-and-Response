@@ -1,0 +1,566 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ZTA Platform | Security Dashboard &amp; Policy Management</title>
+  <link rel="stylesheet" href="assets/dashboard.css">
+  <script defer src="assets/dashboard.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <button id="menu" class="icon" aria-label="Open navigation" aria-expanded="false">☰</button>
+  <a href="/" class="brand">ZTA<span>.</span></a>
+  <span class="module">Zero Trust Security Platform</span>
+  <div class="account">
+    <label class="role-selector-wrap" title="Authenticated access">
+      <span class="role-label">RBAC Role:</span>
+      <select id="user-role" aria-label="Current RBAC Role">
+        <option value="ADMIN">ADMIN (Full Control)</option>
+        <option value="SOC_ANALYST">SOC_ANALYST (Read-Only)</option>
+        <option value="AUDITOR">AUDITOR (Audit Only)</option>
+        <option value="VIEWER" selected>VIEWER (Read-Only)</option>
+      </select>
+    </label>
+    <span class="status-indicator" id="manager-status">Manager connection pending</span>
+  </div>
+</header>
+
+<nav id="navigation" hidden>
+  <button data-view="dashboard">Security Dashboard</button>
+  <button data-view="agents">Endpoint Inventory</button>
+  <button data-view="events">Security Events</button>
+  <button data-view="rules_policies">Rules &amp; Policies</button>
+  <button data-view="incidents">Alerts &amp; Incidents</button>
+  <button data-view="timeline">Unified Timeline</button>
+  <button data-view="audit">Audit Log</button>
+  <button data-view="services">Background Services</button>
+</nav>
+
+<div class="tabbar">
+  <div role="tablist" aria-label="Security views">
+    <button class="tab active" data-view="dashboard" role="tab" aria-selected="true">Dashboard</button>
+    <button class="tab" data-view="agents" role="tab" aria-selected="false">Endpoints</button>
+    <button class="tab" data-view="events" role="tab" aria-selected="false">Events</button>
+    <button class="tab" data-view="rules_policies" role="tab" aria-selected="false">Rules &amp; Policies</button>
+    <button class="tab" data-view="incidents" role="tab" aria-selected="false">Alerts</button>
+    <button class="tab" data-view="timeline" role="tab" aria-selected="false">Timeline</button>
+    <button class="tab" data-view="audit" role="tab" aria-selected="false">Audit Log</button>
+    <button class="tab" data-view="services" role="tab" aria-selected="false">Services</button>
+  </div>
+  <div class="actions">
+    <button id="explore">⌁ &nbsp; Explore Agents</button>
+    <button id="report">▤ &nbsp; Generate Report</button>
+  </div>
+</div>
+
+<main>
+  <div class="toolbar">
+    <form id="search-form" class="search">
+      <span aria-hidden="true">⌕</span>
+      <input id="search" aria-label="Search security data" placeholder="Search alerts, agents, rules, policies, or MITRE tactics">
+      <button type="submit">Search</button>
+    </form>
+    <label class="period">
+      <span aria-hidden="true">▦</span>
+      <select id="period" aria-label="Time range">
+        <option value="24">Last 24 hours</option>
+        <option value="168">Last 7 days</option>
+        <option value="720">Last 30 days</option>
+        <option value="all">All time</option>
+        <option value="custom">Custom dates</option>
+      </select>
+    </label>
+    <button id="dates">Show dates</button>
+    <button id="refresh" class="outline">↻ &nbsp; Refresh</button>
+  </div>
+
+  <div id="date-range" hidden>
+    <label>From <input id="from" type="datetime-local"></label>
+    <label>To <input id="to" type="datetime-local"></label>
+    <button id="apply-dates" class="outline">Apply dates</button>
+  </div>
+
+  <div class="filterbar">
+    <span class="chip">platform: ZTA Zero Trust EDR</span>
+    <label id="global-severity-label">Severity 
+      <select id="severity">
+        <option value="">All levels</option>
+        <option>CRITICAL</option>
+        <option>HIGH</option>
+        <option>MEDIUM</option>
+        <option>LOW</option>
+      </select>
+    </label>
+    <button id="clear">Clear filters</button>
+    <span id="connection" role="status">Connecting to ZTA…</span>
+  </div>
+
+  <div id="notice" role="alert" hidden></div>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <!-- Dashboard Overview Cards & Charts -->
+  <section id="dashboard-view">
+<details><summary>Backend processing and response status</summary><pre id="operational-summary"></pre></details>
+
+    <div class="metrics">
+      <div><span>Active Endpoints</span><strong id="total-agents">—</strong></div>
+      <div><span>Total Events</span><strong id="total">—</strong></div>
+      <div><span>Open Incidents / Alerts</span><strong class="danger" id="critical">—</strong></div>
+      <div><span>Policy Triggers</span><strong id="policy-triggers">—</strong></div>
+    </div>
+    <div class="charts">
+      <section class="panel">
+        <div class="panel-heading"><h2>Alerts evolution · Top agents</h2><span class="subtle">Alerts by agent</span></div>
+        <div id="evolution" class="chart" aria-label="Alerts over time"></div>
+      </section>
+      <section class="panel">
+        <div class="panel-heading"><h2>Top MITRE ATT&amp;CK tactics</h2></div>
+        <div id="tactics" class="chart" aria-label="MITRE tactic distribution"></div>
+      </section>
+    </div>
+  </section>
+
+  <!-- Rules & Policies Dedicated Subtab Header -->
+  <section id="rules-policies-header" class="rules-policies-section" hidden>
+    <div class="subtabs-bar">
+      <div class="subtabs" role="tablist">
+        <button id="subtab-rules-btn" class="subtab-btn active" role="tab" aria-selected="true">
+          <span class="subtab-tag">[ RULES ]</span> Detection Rules (<span id="rules-count-badge">0</span>)
+        </button>
+        <button id="subtab-policies-btn" class="subtab-btn" role="tab" aria-selected="false">
+          <span class="subtab-tag">[ POLICIES ]</span> Adaptive Policies (<span id="policies-count-badge">0</span>)
+        </button>
+      </div>
+      <div class="subtab-actions">
+        <button id="btn-create-rule" class="btn-create primary">+ Create Rule</button>
+        <button id="btn-create-policy" class="btn-create primary" hidden>+ Create Policy</button>
+      </div>
+    </div>
+
+    <!-- Rules Filter Bar -->
+    <div id="rules-filterbar" class="sub-filterbar">
+      <label>Category: 
+        <select id="filter-rule-category">
+          <option value="">All Categories</option>
+        </select>
+      </label>
+      <label>Severity: 
+        <select id="filter-rule-severity">
+          <option value="">All Severities</option>
+          <option>CRITICAL</option>
+          <option>HIGH</option>
+          <option>MEDIUM</option>
+          <option>LOW</option>
+        </select>
+      </label>
+      <label>Status: 
+        <select id="filter-rule-status">
+          <option value="">All Statuses</option>
+          <option value="enabled">Enabled Only</option>
+          <option value="disabled">Disabled Only</option>
+        </select>
+      </label>
+    </div>
+
+    <!-- Policies Filter Bar -->
+    <div id="policies-filterbar" class="sub-filterbar" hidden>
+      <label>Category: 
+        <select id="filter-policy-category">
+          <option value="">All Categories</option>
+        </select>
+      </label>
+      <label>Severity: 
+        <select id="filter-policy-severity">
+          <option value="">All Severities</option>
+          <option>CRITICAL</option>
+          <option>HIGH</option>
+          <option>MEDIUM</option>
+          <option>LOW</option>
+        </select>
+      </label>
+      <label>Mode: 
+        <select id="filter-policy-mode">
+          <option value="">All Modes</option>
+          <option value="ENFORCE">ENFORCE (Automated Response)</option>
+          <option value="ALERT_ONLY">ALERT_ONLY (Audit Mode)</option>
+        </select>
+      </label>
+      <label>Action: 
+        <select id="filter-policy-action">
+          <option value="">All Actions</option>
+          <option>MONITOR</option>
+          <option>ALERT</option>
+          <option>NOTIFY_SOC</option>
+          <option>LOGOUT_USER</option>
+          <option>KILL_PROCESS</option>
+          <option>ISOLATE_ENDPOINT</option>
+        </select>
+      </label>
+      <label>Status: 
+        <select id="filter-policy-status">
+          <option value="">All Statuses</option>
+          <option value="active">Active Only</option>
+          <option value="disabled">Disabled Only</option>
+        </select>
+      </label>
+    </div>
+  </section>
+
+  <!-- Table Panel (Used for all views: rules, policies, agents, alerts, etc.) -->
+  <section class="panel table-panel">
+    <div class="panel-heading">
+      <h2 id="table-title">Security alerts</h2>
+      <span id="result-count" class="subtle"></span>
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead id="table-head"></thead>
+        <tbody id="table-body"></tbody>
+      </table>
+    </div>
+    <div class="table-footer">
+      <span id="page-info"></span>
+      <div>
+        <button id="previous">← Previous</button>
+        <button id="next">Next →</button>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>ZTA Platform <span class="muted">/ Zero Trust Architecture EDR &amp; Policy Enforcement</span></span>
+    <span id="updated">Waiting for data</span>
+  </footer>
+</main>
+
+<!-- MODAL: Rule Builder (Create / Edit Detection Rule) -->
+<dialog id="rule-builder-modal" class="editor-modal">
+  <div class="modal-header">
+    <h2 id="rule-builder-title">Create Detection Rule</h2>
+    <button id="close-rule-builder" class="close-btn" aria-label="Close modal">✕</button>
+  </div>
+  <form id="rule-builder-form" class="modal-body">
+    <input type="hidden" id="rb-editing-id" value="">
+    <div class="form-row">
+      <div class="form-group flex-1">
+        <label for="rb-code">Rule Code / Identifier <span class="req">*</span></label>
+        <input id="rb-code" type="text" required placeholder="RULE-0016" pattern="[A-Za-z0-9_-]+">
+      </div>
+      <div class="form-group flex-2">
+        <label for="rb-name">Rule Name <span class="req">*</span></label>
+        <input id="rb-name" type="text" required placeholder="e.g. Unauthorized Account Creation Attempt">
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label for="rb-desc">Description</label>
+      <textarea id="rb-desc" rows="2" placeholder="Describe the threat detection intent and forensic relevance..."></textarea>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label for="rb-category">Category</label>
+        <select id="rb-category"></select>
+      </div>
+      <div class="form-group">
+        <label for="rb-severity">Severity</label>
+        <select id="rb-severity"></select>
+      </div>
+      <div class="form-group">
+        <label for="rb-risk-delta">Risk Delta (+0 to +100)</label>
+        <input id="rb-risk-delta" type="number" min="-100" max="100" value="25">
+      </div>
+      <div class="form-group toggle-group">
+        <label>Initial Status</label>
+        <label class="switch-inline">
+          <input id="rb-enabled" type="checkbox" checked>
+          <span>Enabled</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group flex-1">
+        <label for="rb-mitre-tactic">MITRE ATT&amp;CK Tactic</label>
+        <select id="rb-mitre-tactic"></select>
+      </div>
+      <div class="form-group flex-1">
+        <label for="rb-mitre-technique">MITRE Technique ID</label>
+        <input id="rb-mitre-technique" type="text" placeholder="e.g. T1136.001">
+      </div>
+    </div>
+
+    <!-- Visual Condition Builder -->
+    <div class="condition-builder-box">
+      <div class="condition-header">
+        <div>
+          <h3>Visual Nested Condition Builder</h3>
+          <span class="subtle">Construct hierarchical boolean logic evaluated against real endpoint telemetry</span>
+        </div>
+        <div class="condition-actions">
+          <button type="button" id="rb-add-condition-root" class="btn-sm">+ Add Condition</button>
+          <button type="button" id="rb-add-group-root" class="btn-sm outline">+ Add Group</button>
+        </div>
+      </div>
+      <div id="rb-condition-tree-root" class="condition-tree-container"></div>
+
+      <div class="condition-validator-bar">
+        <button type="button" id="rb-btn-validate" class="btn-outline">✓ Test / Validate Logic</button>
+        <button type="button" id="rb-btn-dryrun-toggle" class="btn-text">Test against sample event ▸</button>
+        <span id="rb-validate-status" class="validate-status"></span>
+      </div>
+
+      <div id="rb-dryrun-box" class="dryrun-panel" hidden>
+        <label for="rb-sample-event">Sample Event JSON (Telemetry)</label>
+        <textarea id="rb-sample-event" rows="4" placeholder='{"event_type": "PROCESS_CREATION", "process": {"name": "powershell.exe", "command_line": "-enc"}}'></textarea>
+        <button type="button" id="rb-btn-run-test" class="btn-sm">Evaluate Event Against Rule</button>
+        <pre id="rb-dryrun-result" class="dryrun-result" hidden></pre>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button type="button" id="rb-cancel" class="btn-secondary">Cancel</button>
+      <button type="submit" id="rb-save" class="btn-primary">Save Detection Rule</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- MODAL: Policy Builder (Create / Edit Adaptive Policy) -->
+<dialog id="policy-builder-modal" class="editor-modal">
+  <div class="modal-header">
+    <h2 id="policy-builder-title">Create Adaptive Policy</h2>
+    <button id="close-policy-builder" class="close-btn" aria-label="Close modal">✕</button>
+  </div>
+  <form id="policy-builder-form" class="modal-body">
+    <input type="hidden" id="pb-editing-id" value="">
+    <div class="form-row">
+      <div class="form-group flex-1">
+        <label for="pb-code">Policy Code / Identifier <span class="req">*</span></label>
+        <input id="pb-code" type="text" required placeholder="POL-005" pattern="[A-Za-z0-9_-]+">
+      </div>
+      <div class="form-group flex-2">
+        <label for="pb-name">Policy Name <span class="req">*</span></label>
+        <input id="pb-name" type="text" required placeholder="e.g. Critical Ransomware Lateral Containment">
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label for="pb-desc">Description</label>
+      <textarea id="pb-desc" rows="2" placeholder="Specify response enforcement criteria and containment strategy..."></textarea>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label for="pb-category">Category</label>
+        <select id="pb-category"></select>
+      </div>
+      <div class="form-group">
+        <label for="pb-severity">Severity</label>
+        <select id="pb-severity"></select>
+      </div>
+      <div class="form-group">
+        <label for="pb-mode">Execution Mode</label>
+        <select id="pb-mode"></select>
+      </div>
+      <div class="form-group toggle-group">
+        <label>Status</label>
+        <label class="switch-inline">
+          <input id="pb-enabled" type="checkbox" checked>
+          <span>Active</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group flex-1">
+        <label for="pb-action">Response Action <span class="req">*</span></label>
+        <select id="pb-action" required></select>
+        <small id="pb-action-hint" class="field-hint">Action description will appear here</small>
+      </div>
+      <div class="form-group flex-1">
+        <label for="pb-linked-rule">Link to Detection Rule (Optional)</label>
+        <select id="pb-linked-rule">
+          <option value="">-- None (Trigger Purely on Risk Threshold) --</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group flex-1">
+        <label for="pb-min-risk">Minimum Risk Score (0–100)</label>
+        <input id="pb-min-risk" type="number" min="0" max="100" value="85" required>
+      </div>
+      <div class="form-group flex-1">
+        <label for="pb-max-risk">Maximum Risk Score (0–100)</label>
+        <input id="pb-max-risk" type="number" min="0" max="100" value="100" required>
+      </div>
+      <div class="form-group toggle-group flex-1">
+        <label>Offline Execution</label>
+        <label class="switch-inline">
+          <input id="pb-allow-offline" type="checkbox">
+          <span>Allow Offline</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Optional Visual Policy Condition -->
+    <div class="condition-builder-box">
+      <div class="condition-header">
+        <div>
+          <h3>Policy Extra Evaluation Logic (Optional)</h3>
+          <span class="subtle">Additional context conditions required before this policy triggers response actions</span>
+        </div>
+        <div class="condition-actions">
+          <button type="button" id="pb-add-condition-root" class="btn-sm">+ Add Condition</button>
+          <button type="button" id="pb-add-group-root" class="btn-sm outline">+ Add Group</button>
+        </div>
+      </div>
+      <div id="pb-condition-tree-root" class="condition-tree-container"></div>
+      <div class="condition-validator-bar">
+        <button type="button" id="pb-btn-validate" class="btn-outline">✓ Validate Policy Logic</button>
+        <span id="pb-validate-status" class="validate-status"></span>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button type="button" id="pb-cancel" class="btn-secondary">Cancel</button>
+      <button type="submit" id="pb-save" class="btn-primary">Save Adaptive Policy</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- MODAL: Rule Details (Logic, Linked Policies, Matches, Evaluations) -->
+<dialog id="rule-details-modal" class="view-modal">
+  <div class="modal-header">
+    <div>
+      <h2 id="rd-title">Detection Rule Details</h2>
+      <span id="rd-code-badge" class="badge"></span>
+      <span id="rd-status-badge" class="badge"></span>
+    </div>
+    <button id="close-rule-details" class="close-btn" aria-label="Close modal">✕</button>
+  </div>
+  <div class="modal-body">
+    <div class="details-grid">
+      <div class="metric-card"><span>Category</span><strong id="rd-category">—</strong></div>
+      <div class="metric-card"><span>Severity</span><strong id="rd-severity">—</strong></div>
+      <div class="metric-card"><span>Risk Delta</span><strong id="rd-risk-delta">—</strong></div>
+      <div class="metric-card"><span>Total Matches</span><strong id="rd-total-matches">0</strong></div>
+    </div>
+
+    <div class="details-section">
+      <h3>Rule Description &amp; MITRE Mapping</h3>
+      <p id="rd-desc" class="details-desc">—</p>
+      <div class="tag-row">
+        <span class="tag">MITRE Tactic: <b id="rd-mitre-tactic">—</b></span>
+        <span class="tag">MITRE Technique: <b id="rd-mitre-technique">—</b></span>
+      </div>
+    </div>
+
+    <div class="details-section">
+      <h3>Condition Logic Tree</h3>
+      <div id="rd-condition-display" class="condition-tree-display"></div>
+    </div>
+
+    <div class="details-section">
+      <h3>Linked Adaptive Policies</h3>
+      <div id="rd-linked-policies" class="linked-items-list"></div>
+    </div>
+
+    <div class="details-section">
+      <h3>Recent Matches &amp; Evaluation Branch Results</h3>
+      <div id="rd-recent-matches" class="recent-matches-list"></div>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button type="button" id="rd-btn-edit" class="btn-primary">Edit Rule</button>
+    <button type="button" id="close-rule-details-btn" class="btn-secondary">Close</button>
+  </div>
+</dialog>
+
+<!-- MODAL: Policy Details (Mode, Action, Linked Rule, Triggers) -->
+<dialog id="policy-details-modal" class="view-modal">
+  <div class="modal-header">
+    <div>
+      <h2 id="pd-title">Adaptive Policy Details</h2>
+      <span id="pd-code-badge" class="badge"></span>
+      <span id="pd-status-badge" class="badge"></span>
+    </div>
+    <button id="close-policy-details" class="close-btn" aria-label="Close modal">✕</button>
+  </div>
+  <div class="modal-body">
+    <div class="details-grid">
+      <div class="metric-card"><span>Execution Mode</span><strong id="pd-mode">—</strong></div>
+      <div class="metric-card"><span>Response Action</span><strong id="pd-action">—</strong></div>
+      <div class="metric-card"><span>Risk Threshold Range</span><strong id="pd-risk-range">—</strong></div>
+      <div class="metric-card"><span>Total Policy Triggers</span><strong id="pd-total-triggers">0</strong></div>
+    </div>
+
+    <div class="details-section">
+      <h3>Policy Description</h3>
+      <p id="pd-desc" class="details-desc">—</p>
+    </div>
+
+    <div class="details-section">
+      <h3>Linked Detection Rule</h3>
+      <div id="pd-linked-rule-box" class="linked-rule-card"></div>
+    </div>
+
+    <div class="details-section" id="pd-condition-section" hidden>
+      <h3>Extra Condition Logic</h3>
+      <div id="pd-condition-display" class="condition-tree-display"></div>
+    </div>
+
+    <div class="details-section">
+      <h3>Policy Execution &amp; Trigger History</h3>
+      <div id="pd-recent-triggers" class="recent-matches-list"></div>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button type="button" id="pd-btn-edit" class="btn-primary">Edit Policy</button>
+    <button type="button" id="close-policy-details-btn" class="btn-secondary">Close</button>
+  </div>
+</dialog>
+
+<!-- MODAL: Safe Delete Confirmation -->
+<dialog id="delete-confirm-modal" class="confirm-modal">
+  <div class="modal-header danger">
+    <h2>Confirm Safe Deletion</h2>
+    <button id="close-delete-modal" class="close-btn" aria-label="Close modal">✕</button>
+  </div>
+  <div class="modal-body">
+    <p id="del-message">Are you sure you want to permanently delete this item?</p>
+    <div id="del-warning-box" class="warning-callout">
+      <div class="warning-icon">⚠️</div>
+      <div class="warning-text">
+        <strong id="del-warning-title">Dependency &amp; Historical Impact Notice</strong>
+        <ul id="del-impact-list"></ul>
+      </div>
+    </div>
+    <p class="subtle">Historical security alerts, incident logs, and audit trails referencing this item will be safely preserved in the database for compliance.</p>
+  </div>
+  <div class="modal-footer">
+    <button type="button" id="del-cancel" class="btn-secondary">Cancel</button>
+    <button type="button" id="del-confirm" class="btn-danger">Yes, Delete Safely</button>
+  </div>
+</dialog>
+
+<!-- MODAL: Alert Forensic Chain & Raw Event Details -->
+<dialog id="details" class="forensic-modal">
+  <div class="modal-header">
+    <h2 id="detail-title">Forensic Details</h2>
+    <button id="close-details" class="close-btn" aria-label="Close details">✕</button>
+  </div>
+  <div class="modal-body">
+    <div id="forensic-chain-container" class="forensic-chain-wrapper" hidden>
+      <h3>Complete Forensic Decision Chain</h3>
+      <div id="forensic-pipeline" class="forensic-pipeline"></div>
+    </div>
+    <h3>Telemetry &amp; Record Data</h3>
+    <pre id="detail-body"></pre>
+  </div>
+</dialog>
+
+<dialog id="admin-auth"><form id="admin-auth-form"><h3>Administrator authentication</h3><label>Administrator token <input id="admin-token" type="password" autocomplete="off" required></label><button type="submit">Authenticate</button><button type="button" id="cancel-admin-auth">Cancel</button></form></dialog>
+</body>
+</html>

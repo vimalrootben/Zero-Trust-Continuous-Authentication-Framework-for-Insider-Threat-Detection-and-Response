@@ -1,0 +1,94 @@
+[
+  {
+    "rule_id": "DEMO-TEST-001",
+    "code": "DEMO-TEST-001",
+    "name": "Controlled Demo Process Trigger",
+    "category": "DEMO",
+    "severity": "LOW",
+    "mitre_tactic": "Execution",
+    "mitre_technique_id": "T1059",
+    "risk_delta": 5,
+    "condition": {
+      "any": [
+        {"field": "process.command_line", "op": "contains", "value": "DEMO-TEST-001"},
+        {"field": "data.command_line", "op": "contains", "value": "DEMO-TEST-001"},
+        {"field": "data.process_name", "op": "contains_icase", "value": "DEMO-TEST-001"}
+      ]
+    },
+    "response_action": "ALERT",
+    "logic_type": "CONDITION_TREE",
+    "enabled": false,
+    "allow_offline": true,
+    "is_demo": true,
+    "description": "Benign demo rule matching controlled process trigger marker"
+  },
+  {
+    "rule_id": "DEMO-TEST-002",
+    "code": "DEMO-TEST-002",
+    "name": "Controlled Demo File Activity",
+    "category": "DEMO",
+    "severity": "LOW",
+    "mitre_tactic": "Collection",
+    "mitre_technique_id": "T1005",
+    "risk_delta": 5,
+    "condition": {
+      "any": [
+        {"field": "data.target_path", "op": "contains_icase", "value": "edr-demo"},
+        {"field": "data.file_path", "op": "contains_icase", "value": "edr-demo"},
+        {"field": "process.command_line", "op": "contains_icase", "value": "edr-demo"},
+        {"field": "data.command_line", "op": "contains_icase", "value": "edr-demo"}
+      ]
+    },
+    "response_action": "ALERT",
+    "logic_type": "CONDITION_TREE",
+    "enabled": false,
+    "allow_offline": true,
+    "is_demo": true,
+    "description": "Benign demo rule matching controlled file operations in safe edr-demo directory"
+  },
+  {
+    "rule_id": "DEMO-TEST-003",
+    "code": "DEMO-TEST-003",
+    "name": "Controlled Demo Network Connection",
+    "category": "DEMO",
+    "severity": "LOW",
+    "mitre_tactic": "Command and Control",
+    "mitre_technique_id": "T1071",
+    "risk_delta": 5,
+    "condition": {
+      "any": [
+        {"field": "destination_port", "op": "eq", "value": 44444},
+        {"field": "data.destination_port", "op": "eq", "value": 44444}
+      ]
+    },
+    "response_action": "ALERT",
+    "logic_type": "CONDITION_TREE",
+    "enabled": false,
+    "allow_offline": true,
+    "is_demo": true,
+    "description": "Benign demo rule matching controlled local test network connection"
+  },
+  {
+    "rule_id": "DEMO-TEST-004",
+    "code": "DEMO-TEST-004",
+    "name": "Controlled Demo Listening Port",
+    "category": "DEMO",
+    "severity": "LOW",
+    "mitre_tactic": "Persistence",
+    "mitre_technique_id": "T1571",
+    "risk_delta": 5,
+    "condition": {
+      "any": [
+        {"field": "destination_port", "op": "eq", "value": 44445},
+        {"field": "data.destination_port", "op": "eq", "value": 44445},
+        {"field": "data.local_port", "op": "eq", "value": 44445}
+      ]
+    },
+    "response_action": "ALERT",
+    "logic_type": "CONDITION_TREE",
+    "enabled": false,
+    "allow_offline": true,
+    "is_demo": true,
+    "description": "Benign demo rule matching controlled local listening socket"
+  }
+]
