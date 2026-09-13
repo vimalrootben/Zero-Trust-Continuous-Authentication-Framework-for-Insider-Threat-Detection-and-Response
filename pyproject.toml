@@ -1,0 +1,63 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zta-platform"
+version = "0.1.0"
+description = "ZTA Platform — Zero Trust Architecture"
+requires-python = ">=3.11"
+dependencies = ["requests>=2.31.0"]
+
+[project.optional-dependencies]
+test = ["pytest>=7.4.0", "pytest-asyncio>=0.21.0"]
+
+[project.scripts]
+zta-dashboard = "zta.dashboard.run_dashboard:main"
+zta-manager = "zta.dashboard.run_dashboard:main"
+zta-agent = "zta.agent.agent_daemon:main"
+
+[tool.setuptools]
+packages = [
+    "zta",
+    "zta.agent",
+    "zta.agent.commands",
+    "zta.agent.execution",
+    "zta.agent.rules",
+    "zta.agent.storage",
+    "zta.api",
+    "zta.dashboard",
+    "zta.engine",
+    "zta.engine.correlation",
+    "zta.engine.events",
+    "zta.engine.policy",
+    "zta.engine.response",
+    "zta.engine.risk",
+    "zta.engine.trust",
+    "zta.manager",
+    "zta.powershell",
+    "zta.storage"
+]
+
+[tool.setuptools.package-dir]
+zta = "."
+
+[tool.setuptools.package-data]
+"zta.dashboard" = ["index.html", "assets/*.css", "assets/*.js"]
+"zta.powershell" = ["scripts/*.ps1"]
+
+[tool.pytest.ini_options]
+testpaths = [
+    "tests/test_background_completion.py",
+    "tests/test_real_logic_regressions.py",
+    "tests/test_adapter.py",
+    "tests/test_agent_daemon.py",
+    "tests/test_agent_engine.py",
+    "tests/test_dashboard_integration.py",
+    "tests/test_demo_framework_and_analytics.py",
+    "tests/test_full_pipeline.py",
+    "tests/test_powershell_executor.py",
+    "tests/test_storage_api.py",
+    "tests/test_rules_policies_management.py",
+    "tests/test_zta_end_to_end_scenarios.py"
+]
