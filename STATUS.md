@@ -11,6 +11,7 @@ Updated: 2026-09-14 (Asia/Calcutta)
 - Added the four compact project-reference documents.
 - Initialized Git and recorded the imported source baseline.
 - Implemented authenticated operator users, sessions, permission enforcement, protected WebSockets, dashboard login/logout, and admin user creation.
+- Provisioned the named runtime operator `admin` with role `ADMIN`; password login was verified. Credentials are stored in ignored `admin-credentials.env` with a restricted Windows ACL.
 
 ## Source state
 
@@ -27,6 +28,7 @@ Updated: 2026-09-14 (Asia/Calcutta)
 - Access-control focused tests: `3 passed in 3.26s`.
 - Full regression after compatibility updates: `116 passed, 1 warning in 43.46s`.
 - Final authorization and rule/policy regression: `9 passed in 9.35s`; `git diff --check` passed.
+- Runtime admin provisioning check: account creation and password login passed against `zta_runtime.db`.
 - JavaScript `node --check` unavailable because Node.js is not installed; dashboard integration/assets are covered by the passing Python suite.
 - Discovery: 113 tests collected.
 - Baseline: 48 passed, 65 setup errors in 2.82s; errors are `PermissionError [WinError 5]` creating pytest temp/cache directories, so this is not a valid code-failure baseline.
