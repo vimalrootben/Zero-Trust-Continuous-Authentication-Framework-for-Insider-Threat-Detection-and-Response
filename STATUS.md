@@ -18,6 +18,7 @@ Updated: 2026-09-14 (Asia/Calcutta)
 - Live manager PID `9124` and `agent-local` PID `16320` use authenticated process-local agent credentials; dashboard and agent API listen on ports 8000/8080.
 - Added dedicated login/operator-management/password-change pages, a hard pre-session dashboard gate, and logout redirection to login.
 - Added policy validation, explicit priority, deterministic code/ID tie-breaking, legacy-order migration, and dashboard priority controls.
+- Published all bounded-change branches and `baseline-2026-09-13` to the GitHub `origin`; latest complete project branch is `feat/policy-priority-selection`. Remote `main` was preserved because it has unrelated history.
 
 ## Source state
 
@@ -25,6 +26,7 @@ Updated: 2026-09-14 (Asia/Calcutta)
 - Baseline tag: `baseline-2026-09-13` (annotated).
 - Current implementation commit: `e962341d33f402e7179e4eb2e1e200ef16dab219`; branch: `feat/policy-priority-selection`.
 - Git executable: `C:\Program Files\Git\cmd\git.exe`; repository-local author is `Codex Agent <codex@local>`.
+- Remote: `origin` -> `https://github.com/vimalrootben/Zero-Trust-Continuous-Authentication-Framework-for-Insider-Threat-Detection-and-Response.git`.
 - Access-control base commit: `7f0ad172c49355aa85b742345fecfccc30da182d`; branch: `feat/permission-access`.
 - Rule-validation base commit: `cb634cf9a1588f5a142ea8a51a3ce1f7983a548c`; branch: `fix/rule-activation-validation`.
 - Regex-cost base commit: `1ae3ce7eed605abbc711a710a0f5acd17e920dd4`; branch: `fix/regex-evaluation-cost`.
