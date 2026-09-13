@@ -14,6 +14,7 @@ Validates:
 """
 
 import json
+import time
 import threading
 import urllib.request
 import urllib.error
@@ -289,6 +290,18 @@ def test_deep_rule_update_and_invalid_reactivation_are_rejected(test_server):
     status, result = api_request(base_url, f"/api/zta/rules/{rule_id}/toggle", method="PATCH", body={"enabled": 1})
     assert status == 400
     assert repo.get_rule_by_id(rule_id)["enabled"] == 0
+
+
+def test_rule_testing_endpoint_bounds_expensive_regex(test_server):
+    started = time.monotonic()
+    status, result = api_request(test_server["base_url"], "/api/zta/rules/test", method="POST", body={
+        "condition": {"field": "payload", "op": "regex", "value": "((a|aa)+)+$"},
+        "event": {"payload": "a" * 3000 + "!"},
+    })
+    assert time.monotonic() - started < .75
+    assert status == 200
+    assert result["matched"] is False
+    assert result["trace"]["evaluation_error"] == "REGEX_TIMEOUT"
 
 
 def test_policy_crud_toggle_and_rule_linking(test_server):

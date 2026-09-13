@@ -1,5 +1,10 @@
 # Plan
 
+## Completed - Bounded regex evaluation
+
+- Limited regex pattern and input sizes and enforced a 25 ms timeout using the timeout-capable `regex` engine.
+- Acceptance: expensive patterns terminate with traceable safe-false results; normal regex matches and all 132 tests pass.
+
 ## Completed - Safe rule activation
 
 - Enforced rule field types, enums, risk bounds, operand types, and condition-tree complexity before create, update, or activation.

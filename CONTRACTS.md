@@ -32,6 +32,7 @@ Optional/defaulted: `user: {name?, domain?, session_id?}`, `process: {name?, pat
 - Enums: severity `LOW|MEDIUM|HIGH|CRITICAL`; category is one of the dashboard categories plus `DEMO`; response action `MONITOR|ALERT|NOTIFY_SOC|LOGOUT_USER|LOGOFF_USER|KILL_PROCESS|ISOLATE_ENDPOINT`; logic type `CONDITION_TREE`.
 - `risk_delta` is an integer from 0 through 100. `enabled` and `allow_offline` are booleans or integer `0|1`.
 - Conditions allow at most 8 levels, 128 total nodes, 32 children per AND/OR group, 100 scalar membership values, 128-character field paths, and 512-character regular expressions. Ordered operands must be numeric; contains/regex operands must be strings.
+- Regex evaluation accepts at most 4096 input characters and has a 25 ms match timeout. Safe failures return `result: false` with `evaluation_error: REGEX_INPUT_LIMIT|REGEX_TIMEOUT`; normal supported patterns retain search semantics.
 - The same checks run before create, update, and activation. A rejected update performs no write; an invalid disabled legacy rule cannot be enabled.
 
 ## Schema migration and compatibility
@@ -40,6 +41,7 @@ Optional/defaulted: `user: {name?, domain?, session_id?}`, `process: {name?, pat
 - `ZTA_ADMIN_TOKEN` remains a legacy `ADMIN` operator credential for bootstrap/compatibility. Per-agent bearer authentication and `/api/v1` ingestion payloads are unchanged.
 - Previously public operator reads/streams now require authentication; clients must supply a bearer session (or legacy admin token).
 - Rule validation adds no schema migration. Existing valid persisted rules remain compatible; stored invalid rules remain readable but must be corrected before activation.
+- Regex safety adds the `regex>=2024.11.6` runtime dependency and no schema change. On Windows, avoid excessively long environment paths because extension DLL loading remains OS-path limited.
 
 ## States
 

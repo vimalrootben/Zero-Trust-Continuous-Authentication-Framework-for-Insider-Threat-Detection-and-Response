@@ -1,6 +1,7 @@
 """Regression fixtures only: none of these tests executes a Windows action."""
 from datetime import datetime
 from unittest.mock import MagicMock, patch
+import time
 
 import pytest
 
@@ -35,6 +36,25 @@ def test_nested_logic_records_every_branch():
     assert trace['result'] is True
     assert trace['children'][1]['children'][1]['result'] is False
     assert ConditionEvaluator().evaluate(tree, {'x': 2}) is False
+
+
+def test_regex_input_limit_and_timeout_are_safe():
+    evaluator = ConditionEvaluator()
+    oversized = evaluator.explain({'field':'x','op':'regex','value':'a+'}, {'x':'a' * 4097})
+    assert oversized['result'] is False
+    assert oversized['evaluation_error'] == 'REGEX_INPUT_LIMIT'
+
+    started = time.monotonic()
+    expensive = evaluator.explain({'field':'x','op':'regex','value':'((a|aa)+)+$'}, {'x':'a' * 3000 + '!'})
+    assert time.monotonic() - started < .5
+    assert expensive['result'] is False
+    assert expensive['evaluation_error'] == 'REGEX_TIMEOUT'
+
+
+def test_normal_regex_behavior_is_preserved():
+    trace = ConditionEvaluator().explain({'field':'process.name','op':'regex','value':r'^power(shell)?\.exe$'}, {'process':{'name':'powershell.exe'}})
+    assert trace['result'] is True
+    assert 'evaluation_error' not in trace
 
 
 @pytest.mark.parametrize('tree', [{}, {'all': []}, {'not': []}, {'all': [], 'any': []},
