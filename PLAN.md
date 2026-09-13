@@ -1,5 +1,10 @@
 # Plan
 
+## Completed - Authenticated permission access
+
+- Added operator creation, password login, expiring sessions, role permissions, protected reads/writes/streams, and authenticated dashboard session flow.
+- Acceptance: unauthorized access returns 401; insufficient permissions return 403; permitted workflows and unchanged agent authentication pass the 116-test suite.
+
 ## P0 - Establish a clean baseline
 
 - Make the repository and test temp directory writable to the development account.

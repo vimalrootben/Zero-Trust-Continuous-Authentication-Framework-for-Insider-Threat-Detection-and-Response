@@ -57,7 +57,7 @@ def http_post(url: str, data: dict):
 
 
 def http_get(url: str):
-    req = urllib.request.Request(url)
+    req = urllib.request.Request(url, headers=auth_headers(url))
     with urllib.request.urlopen(req) as resp:
         return resp.status, json.loads(resp.read().decode("utf-8"))
 
@@ -446,7 +446,8 @@ def test_scenario_websocket_handshake_and_broadcast(test_server):
         f"Upgrade: websocket\r\n"
         f"Connection: Upgrade\r\n"
         f"Sec-WebSocket-Key: {ws_key}\r\n"
-        f"Sec-WebSocket-Version: 13\r\n\r\n"
+        f"Sec-WebSocket-Version: 13\r\n"
+        f"Authorization: Bearer fixture-admin-token\r\n\r\n"
     )
     s.sendall(handshake.encode("utf-8"))
     resp = s.recv(1024).decode("utf-8", errors="ignore")

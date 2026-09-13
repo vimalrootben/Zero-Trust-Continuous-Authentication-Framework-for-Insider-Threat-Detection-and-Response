@@ -15,13 +15,15 @@
   <div class="account">
     <label class="role-selector-wrap" title="Authenticated access">
       <span class="role-label">RBAC Role:</span>
-      <select id="user-role" aria-label="Current RBAC Role">
+      <select id="user-role" aria-label="Current RBAC Role" disabled>
         <option value="ADMIN">ADMIN (Full Control)</option>
         <option value="SOC_ANALYST">SOC_ANALYST (Read-Only)</option>
         <option value="AUDITOR">AUDITOR (Audit Only)</option>
         <option value="VIEWER" selected>VIEWER (Read-Only)</option>
       </select>
     </label>
+    <button id="create-user" type="button" hidden>Create user</button>
+    <button id="sign-out" type="button" hidden>Sign out</button>
     <span class="status-indicator" id="manager-status">Manager connection pending</span>
   </div>
 </header>
@@ -561,6 +563,7 @@
   </div>
 </dialog>
 
-<dialog id="admin-auth"><form id="admin-auth-form"><h3>Administrator authentication</h3><label>Administrator token <input id="admin-token" type="password" autocomplete="off" required></label><button type="submit">Authenticate</button><button type="button" id="cancel-admin-auth">Cancel</button></form></dialog>
+<dialog id="admin-auth"><form id="admin-auth-form"><h3>Operator authentication</h3><label>Username <input id="login-username" autocomplete="username"></label><label>Password <input id="login-password" type="password" autocomplete="current-password"></label><label>Legacy administrator token <input id="admin-token" type="password" autocomplete="off"></label><button type="submit">Authenticate</button><button type="button" id="cancel-admin-auth">Cancel</button></form></dialog>
+<dialog id="user-create"><form id="user-create-form"><h3>Create operator</h3><label>Username <input id="new-username" autocomplete="off" required minlength="3" maxlength="64"></label><label>Password <input id="new-password" type="password" autocomplete="new-password" required minlength="12"></label><label>Role <select id="new-role"><option>VIEWER</option><option>AUDITOR</option><option>SOC_ANALYST</option><option>ADMIN</option></select></label><button type="submit">Create</button><button type="button" id="cancel-user-create">Cancel</button></form></dialog>
 </body>
 </html>

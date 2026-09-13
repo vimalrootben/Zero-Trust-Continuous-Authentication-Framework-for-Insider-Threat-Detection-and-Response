@@ -7,7 +7,7 @@ const state = {
   schema: null,
   view: 'dashboard', rulesPoliciesSubtab: 'rules',
   page: 0, rows: [], loading: false, ws: null,
-  role: 'VIEWER', adminToken: null,
+  role: null, adminToken: sessionStorage.getItem('ztaAccessToken'), permissions: [],
   ruleBuilderTree: null,
   policyBuilderTree: null,
   activeDeleteTarget: null // { type: 'rule' | 'policy', id: string, name: string }
@@ -1353,8 +1353,9 @@ async function refresh() {
     await fetchSchema();
     const endpoints = [
       'events?limit=10000', 'agents', 'incidents', 'overview',
-      'rules', 'policies', 'timeline', 'audit', 'background-services'
+      'rules', 'policies', 'timeline', 'background-services'
     ];
+    if (state.permissions.includes('audit:read')) endpoints.push('audit');
     const results = await Promise.all(endpoints.map(async ep => {
       const response = await apiFetch(`/api/zta/${ep}`, {
         headers: { 'X-User-Role': state.role },
@@ -1371,8 +1372,8 @@ async function refresh() {
     state.rules = results[4].rules || [];
     state.policies = results[5].policies || [];
     state.timeline = results[6].timeline || [];
-    state.auditLogs = results[7].audit_logs || [];
-    state.services = results[8].background_services || [];
+    state.services = results[7].background_services || [];
+    state.auditLogs = state.permissions.includes('audit:read') ? (results[8].audit_logs || []) : [];
 
     $('notice').hidden = (state.overview.total_events || 0) <= state.events.length;
     if (!$('notice').hidden) {
@@ -1396,10 +1397,11 @@ async function refresh() {
 }
 
 function initWebSocket() {
+  if (!state.adminToken || !state.permissions.includes('stream')) return;
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${protocol}//${location.host}/api/zta/ws`;
   try {
-    const ws = new WebSocket(wsUrl);
+    const ws = new WebSocket(wsUrl, [`zta-token.${state.adminToken}`]);
     state.ws = ws;
     ws.onopen = () => {
       text('connection', `● Real-Time WebSocket Connected · ${state.agents.length} Endpoints`);
@@ -1473,26 +1475,64 @@ $('subtab-policies-btn').onclick = () => switchSubtab('policies');
 $('btn-create-rule').onclick = openCreateRuleModal;
 $('btn-create-policy').onclick = openCreatePolicyModal;
 
-// RBAC Selector
+// Authenticated operator session
 $('user-role').value = 'VIEWER';
-$('user-role').onchange = () => {
-  if ($('user-role').value === 'ADMIN') $('admin-auth').showModal();
-  else { state.adminToken = null; state.role = 'VIEWER'; refresh(); }
-};
 $('admin-auth-form').onsubmit = async event => {
   event.preventDefault();
-  state.adminToken = $('admin-token').value;
+  const legacyToken = $('admin-token').value;
+  const username = $('login-username').value.trim();
+  const password = $('login-password').value;
+  let response;
+  if (legacyToken) {
+    state.adminToken = legacyToken;
+    response = await apiFetch('/api/zta/session');
+  } else {
+    response = await fetch('/api/zta/auth/login', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username, password})});
+    if (response.ok) {
+      const login = await response.json();
+      state.adminToken = login.access_token;
+      sessionStorage.setItem('ztaAccessToken', state.adminToken);
+      response = await apiFetch('/api/zta/session');
+    }
+  }
   $('admin-token').value = '';
-  const response = await apiFetch('/api/zta/session');
+  $('login-password').value = '';
   const identity = await response.json();
+  if (!response.ok) {
+    state.adminToken = null;
+    sessionStorage.removeItem('ztaAccessToken');
+    showToast(identity.error || 'Authentication failed', 'error');
+    return;
+  }
   state.role = identity.role;
-  if (state.role !== 'ADMIN') state.adminToken = null;
+  state.permissions = identity.permissions || [];
   $('user-role').value = state.role;
+  $('create-user').hidden = !state.permissions.includes('users:manage');
+  $('sign-out').hidden = false;
   $('admin-auth').close();
-  showToast(state.role === 'ADMIN' ? 'Administrator authenticated' : 'Authentication failed');
-  refresh();
+  showToast(`${identity.user} authenticated as ${state.role}`, 'success');
+  await refresh();
+  initWebSocket();
 };
-$('cancel-admin-auth').onclick = () => { $('admin-auth').close(); $('user-role').value = state.role; };
+$('cancel-admin-auth').onclick = () => { if (state.role) $('admin-auth').close(); };
+$('sign-out').onclick = async () => {
+  if (state.adminToken) await apiFetch('/api/zta/auth/logout', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
+  sessionStorage.removeItem('ztaAccessToken');
+  state.adminToken = null; state.role = null; state.permissions = [];
+  if (state.ws) state.ws.close();
+  $('sign-out').hidden = true; $('create-user').hidden = true;
+  $('admin-auth').showModal();
+};
+$('create-user').onclick = () => $('user-create').showModal();
+$('cancel-user-create').onclick = () => $('user-create').close();
+$('user-create-form').onsubmit = async event => {
+  event.preventDefault();
+  const response = await apiFetch('/api/zta/users', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username:$('new-username').value.trim(), password:$('new-password').value, role:$('new-role').value})});
+  const result = await response.json();
+  if (!response.ok) { showToast(result.error || 'User creation failed', 'error'); return; }
+  $('user-create').close(); event.target.reset();
+  showToast(`Created ${result.user.username} as ${result.user.role}`, 'success');
+};
 
 // Modals close buttons
 $('close-rule-builder').onclick = () => $('rule-builder-modal').close();
@@ -1598,6 +1638,19 @@ $('report').onclick = () => {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 };
 
-// Initial start
-refresh();
-initWebSocket();
+// Initial start: restore a session or require login before loading protected data.
+(async () => {
+  if (state.adminToken) {
+    const response = await apiFetch('/api/zta/session');
+    if (response.ok) {
+      const identity = await response.json();
+      state.role = identity.role; state.permissions = identity.permissions || [];
+      $('user-role').value = state.role;
+      $('create-user').hidden = !state.permissions.includes('users:manage');
+      $('sign-out').hidden = false;
+      await refresh(); initWebSocket(); return;
+    }
+    sessionStorage.removeItem('ztaAccessToken'); state.adminToken = null;
+  }
+  $('admin-auth').showModal();
+})();

@@ -59,5 +59,6 @@ testpaths = [
     "tests/test_powershell_executor.py",
     "tests/test_storage_api.py",
     "tests/test_rules_policies_management.py",
+    "tests/test_operator_auth.py",
     "tests/test_zta_end_to_end_scenarios.py"
 ]

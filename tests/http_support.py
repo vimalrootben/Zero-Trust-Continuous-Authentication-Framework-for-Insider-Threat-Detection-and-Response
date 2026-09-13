@@ -12,7 +12,8 @@ def headers(path, role='ADMIN'):
 def wait_processed(base):
     deadline=time.monotonic()+5
     while time.monotonic()<deadline:
-        with urllib.request.urlopen(base+'/api/zta/events') as response:
+        request=urllib.request.Request(base+'/api/zta/events',headers={'Authorization':'Bearer fixture-admin-token'})
+        with urllib.request.urlopen(request) as response:
             events=json.loads(response.read())['events']
         if all(e['processing_state']!='PENDING' for e in events):
             assert all(e['processing_state']!='FAILED' for e in events),events

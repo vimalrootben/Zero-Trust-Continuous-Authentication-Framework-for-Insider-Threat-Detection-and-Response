@@ -326,6 +326,26 @@ class ZTADatabase:
 
             # Additive migration 20260910: durable processing and evidence.
             cursor.execute("CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY, applied_at TEXT NOT NULL)")
+            cursor.execute("""CREATE TABLE IF NOT EXISTS operator_users (
+                user_id TEXT PRIMARY KEY,
+                username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL CHECK(role IN ('ADMIN','SOC_ANALYST','AUDITOR','VIEWER')),
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                created_by TEXT NOT NULL,
+                last_login_at TEXT
+            )""")
+            cursor.execute("""CREATE TABLE IF NOT EXISTS operator_sessions (
+                session_id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                token_hash TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                last_used_at TEXT NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES operator_users(user_id) ON DELETE CASCADE
+            )""")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_operator_sessions_expires ON operator_sessions(expires_at)")
             for table, column, definition in [
                 ("zta_events", "normalized_json", "TEXT"),
                 ("zta_events", "processing_state", "TEXT DEFAULT 'LEGACY'"),
@@ -364,6 +384,7 @@ class ZTADatabase:
             )""")
             cursor.execute("INSERT OR IGNORE INTO schema_migrations VALUES ('20260910-background-evidence', ?)", (datetime.now(timezone.utc).isoformat(),))
             cursor.execute("INSERT OR IGNORE INTO schema_migrations VALUES ('20260913-demo-and-logs', ?)", (datetime.now(timezone.utc).isoformat(),))
+            cursor.execute("INSERT OR IGNORE INTO schema_migrations VALUES ('20260914-operator-rbac', ?)", (datetime.now(timezone.utc).isoformat(),))
             # Seed default rules and policies if empty
             if self.seed_defaults and not cursor.execute("SELECT 1 FROM schema_migrations WHERE version='content-bootstrap'").fetchone():
                 self._seed_default_data(conn)
