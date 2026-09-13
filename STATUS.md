@@ -18,7 +18,7 @@ Updated: 2026-09-14 (Asia/Calcutta)
 
 - Baseline commit: `a2fc14e` (`chore: establish imported project baseline`).
 - Baseline tag: `baseline-2026-09-13` (annotated).
-- Current implementation commit: `aa0cf0dc8aa4f67b28688456e0e636381a92e992`; branch: `feat/permission-access`.
+- Current implementation commit: `00e85d2ec60d1f53219096be64365a31a5866467`; branch: `fix/rule-activation-validation`.
 - Git executable: `C:\Program Files\Git\cmd\git.exe`; repository-local author is `Codex Agent <codex@local>`.
 - Access-control base commit: `7f0ad172c49355aa85b742345fecfccc30da182d`; branch: `feat/permission-access`.
 - Rule-validation base commit: `cb634cf9a1588f5a142ea8a51a3ce1f7983a548c`; branch: `fix/rule-activation-validation`.
