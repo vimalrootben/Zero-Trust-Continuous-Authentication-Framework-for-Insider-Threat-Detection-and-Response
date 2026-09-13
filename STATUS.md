@@ -15,14 +15,14 @@ Updated: 2026-09-14 (Asia/Calcutta)
 - Added centralized validation that blocks invalid rule creation, updates, and reactivation without changing valid stored rules.
 - Bounded regex matching to 4096 input characters and 25 ms, with explicit timeout/limit evidence in condition traces.
 - Added immutable rule definition history, rollback-as-new-version, linked-policy deletion protection, and version-stamped match/incident evidence.
-- Started the live manager (PID `24580`) and `agent-local` (PID `19328`) using authenticated process-local agent credentials; dashboard and agent API listen on ports 8000/8080.
+- Live manager PID `22496` and `agent-local` PID `20404` use authenticated process-local agent credentials; dashboard and agent API listen on ports 8000/8080.
 - Added dedicated login/operator-management/password-change pages, a hard pre-session dashboard gate, and logout redirection to login.
 
 ## Source state
 
 - Baseline commit: `a2fc14e` (`chore: establish imported project baseline`).
 - Baseline tag: `baseline-2026-09-13` (annotated).
-- Current implementation commit: `8ef1125e39c84ecdac45fa74f334bbfcc9711952`; branch: `feat/rule-version-rollback`.
+- Current implementation commit: `74e1e36cdab78645759a6ddd0c299ee88711e16d`; branch: `feat/operator-auth-pages`.
 - Git executable: `C:\Program Files\Git\cmd\git.exe`; repository-local author is `Codex Agent <codex@local>`.
 - Access-control base commit: `7f0ad172c49355aa85b742345fecfccc30da182d`; branch: `feat/permission-access`.
 - Rule-validation base commit: `cb634cf9a1588f5a142ea8a51a3ce1f7983a548c`; branch: `fix/rule-activation-validation`.
@@ -50,6 +50,7 @@ Updated: 2026-09-14 (Asia/Calcutta)
 - Runtime limitation: Sysmon channel was absent (exit 15007) and Security log access was denied (exit 5); heartbeats still succeeded.
 - Live verification: dashboard `GET /` returned HTTP 200; authenticated heartbeat returned HTTP 200 and offline sync returned HTTP 201. The old offline cache signature is invalid under the fresh process-local token and was safely rejected.
 - Operator-pages regression: `27 passed in 19.02s`; full regression: `136 passed in 45.38s`. Static UI contract checks passed; browser screenshot QA was unavailable because no browser surface was connected.
+- Live operator-page check: dashboard returned HTTP 200 with the login page present and app shell initially hidden; unauthenticated overview returned HTTP 401.
 
 ## Next task
 
