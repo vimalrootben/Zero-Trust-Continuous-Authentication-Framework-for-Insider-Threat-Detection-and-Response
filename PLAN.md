@@ -24,3 +24,11 @@
 ## Working rule
 
 Before each task read these four files. After material work, update `PLAN.md` priorities and `STATUS.md`; update architecture/contracts only when their facts change.
+
+## Git delivery rule
+
+- Start each bounded change from `main` on a dedicated branch (`fix/`, `feat/`, `docs/`, or `chore/`).
+- Keep commits focused; review follow-ups by commit reference and `git diff`, not pasted files.
+- Record the relevant test command/result before merge. Documentation-only changes require at least `git diff --check`.
+- Merge only reviewed, passing changes; retain branch history with a non-fast-forward merge.
+- Any storage/API schema change must include its migration, rollback/upgrade behavior, and compatibility note in `CONTRACTS.md` and `STATUS.md`.
