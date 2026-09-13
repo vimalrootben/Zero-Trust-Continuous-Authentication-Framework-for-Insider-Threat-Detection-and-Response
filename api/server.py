@@ -649,6 +649,20 @@ class ZTAApiHandler(SimpleHTTPRequestHandler):
                 self._send_json({"status": "LOGGED_OUT"})
                 return
 
+            if path == "/api/zta/auth/password":
+                if not self._require_permission("read"): return
+                identity = self._identity
+                if identity.get("legacy"):
+                    self._send_json({"error": "Password changes require a named operator account"}, 400)
+                    return
+                result = OperatorAuth(self.repo.db).change_password(
+                    identity["user_id"], payload.get("current_password"),
+                    payload.get("new_password"), self._bearer_token,
+                )
+                self.repo.save_audit("PASSWORD_CHANGED", f"Operator {identity['username']} changed password", user=identity["username"])
+                self._send_json(result)
+                return
+
             if path == "/api/zta/users":
                 if not self._require_permission("users:manage"): return
                 user = OperatorAuth(self.repo.db).create_user(payload, self._actor)

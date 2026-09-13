@@ -8,7 +8,7 @@
 - Rule definitions pass one shared validator at API preview, repository create/update, and disabled-to-enabled activation boundaries.
 - Regex conditions use a timeout-capable engine with bounded pattern/input sizes; timeout and limit outcomes are recorded in evaluation traces instead of blocking workers.
 - `storage/`: SQLite schema/repository for agents, events, versioned rules, policies, incidents, commands, audit, and retry state. Rule changes append immutable snapshots; rollback copies a snapshot into a new current version.
-- `dashboard/`: static operator UI served by the manager; reads `/api/zta/*` and subscribes to `/api/zta/ws`.
+- `dashboard/`: static operator UI served by the manager; a full-page session gate prevents dashboard rendering/data loading until login, then role-aware account management and `/api/zta/ws` are enabled.
 - `powershell/`: validated Windows response handlers; `ruleset/` supplies default rules/policies.
 - Launchers: `zta_manager.py` starts dashboard/API ports sharing one runtime; `zta_agent.py` starts an endpoint agent.
 
@@ -25,6 +25,7 @@
 - Default bindings: dashboard `127.0.0.1:8000`, agent API `127.0.0.1:8080`, shared SQLite DB.
 - Admin mutations require `ZTA_ADMIN_TOKEN`; agent calls require the per-agent secret in `ZTA_AGENT_TOKENS`/`ZTA_AGENT_TOKEN`.
 - Operators authenticate with username/password to receive an eight-hour opaque bearer session. Passwords use salted PBKDF2-SHA256; only token hashes are stored.
+- Operators can change their own password after current-password verification; other active sessions for that user are revoked.
 - Static dashboard assets remain public, but operator API reads, writes, sessions, and WebSocket streams require explicit role permissions.
 - Non-loopback agent traffic must use HTTPS. Commands and cached configuration are signed and agent-bound.
 - Response execution is allowlisted, parameter-validated, journaled, and verification-based.

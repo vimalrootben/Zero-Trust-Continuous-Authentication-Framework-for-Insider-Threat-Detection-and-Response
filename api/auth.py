@@ -94,6 +94,24 @@ class OperatorAuth:
             with self.db.get_connection() as conn:
                 conn.execute("DELETE FROM operator_sessions WHERE token_hash=?", (_token_hash(token),))
 
+    def change_password(self, user_id, current_password, new_password, current_token):
+        """Changes an operator password and revokes every other active session."""
+        with self.db.get_connection() as conn:
+            row = conn.execute(
+                "SELECT password_hash FROM operator_users WHERE user_id=? AND enabled=1", (user_id,)
+            ).fetchone()
+            if not row or not _verify_password(current_password, row["password_hash"]):
+                raise ValueError("Current password is incorrect")
+            new_hash = _password_hash(new_password)
+            if _verify_password(current_password, new_hash):
+                raise ValueError("New password must be different from the current password")
+            conn.execute("UPDATE operator_users SET password_hash=? WHERE user_id=?", (new_hash, user_id))
+            conn.execute(
+                "DELETE FROM operator_sessions WHERE user_id=? AND token_hash<>?",
+                (user_id, _token_hash(current_token)),
+            )
+        return {"status": "PASSWORD_CHANGED"}
+
     def create_user(self, payload, actor):
         username = str(payload.get("username", "")).strip()
         role = str(payload.get("role", "VIEWER")).upper()

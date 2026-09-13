@@ -7,7 +7,33 @@
   <link rel="stylesheet" href="assets/dashboard.css">
   <script defer src="assets/dashboard.js"></script>
 </head>
-<body>
+<body class="auth-pending">
+<section id="login-page" class="login-page" aria-labelledby="login-title">
+  <div class="login-visual">
+    <a class="login-brand" href="/">ZTA<span>.</span></a>
+    <div class="login-copy">
+      <span class="eyebrow">Continuous authentication</span>
+      <h1>Trust is never assumed.<br>Access is always verified.</h1>
+      <p>Sign in to monitor endpoints, investigate threats, and manage response policy from one protected workspace.</p>
+      <div class="security-points"><span>Authenticated sessions</span><span>Permission-based access</span><span>Audited actions</span></div>
+    </div>
+  </div>
+  <div class="login-panel">
+    <form id="login-form" class="login-card">
+      <div class="login-mark">ZT</div>
+      <span class="eyebrow">Operator portal</span>
+      <h2 id="login-title">Welcome back</h2>
+      <p>Enter your operator credentials to continue.</p>
+      <label>Username<input id="login-username" autocomplete="username" required autofocus placeholder="your.username"></label>
+      <label>Password<input id="login-password" type="password" autocomplete="current-password" required placeholder="Enter your password"></label>
+      <p id="login-error" class="form-error" role="alert" hidden></p>
+      <button id="login-submit" class="primary-action" type="submit">Sign in securely</button>
+      <small>Protected by role-based access controls</small>
+    </form>
+  </div>
+</section>
+
+<div id="app-shell" hidden>
 <header class="topbar">
   <button id="menu" class="icon" aria-label="Open navigation" aria-expanded="false">☰</button>
   <a href="/" class="brand">ZTA<span>.</span></a>
@@ -22,7 +48,8 @@
         <option value="VIEWER" selected>VIEWER (Read-Only)</option>
       </select>
     </label>
-    <button id="create-user" type="button" hidden>Create user</button>
+    <button id="change-password" type="button" hidden>Change password</button>
+    <button id="create-user" type="button" hidden>Manage users</button>
     <button id="sign-out" type="button" hidden>Sign out</button>
     <span class="status-indicator" id="manager-status">Manager connection pending</span>
   </div>
@@ -563,7 +590,8 @@
   </div>
 </dialog>
 
-<dialog id="admin-auth"><form id="admin-auth-form"><h3>Operator authentication</h3><label>Username <input id="login-username" autocomplete="username"></label><label>Password <input id="login-password" type="password" autocomplete="current-password"></label><label>Legacy administrator token <input id="admin-token" type="password" autocomplete="off"></label><button type="submit">Authenticate</button><button type="button" id="cancel-admin-auth">Cancel</button></form></dialog>
-<dialog id="user-create"><form id="user-create-form"><h3>Create operator</h3><label>Username <input id="new-username" autocomplete="off" required minlength="3" maxlength="64"></label><label>Password <input id="new-password" type="password" autocomplete="new-password" required minlength="12"></label><label>Role <select id="new-role"><option>VIEWER</option><option>AUDITOR</option><option>SOC_ANALYST</option><option>ADMIN</option></select></label><button type="submit">Create</button><button type="button" id="cancel-user-create">Cancel</button></form></dialog>
+<dialog id="user-create" class="account-modal"><div class="modal-header"><div><span class="eyebrow">Administration</span><h2>Operator accounts</h2></div><button type="button" id="cancel-user-create" class="close-btn" aria-label="Close">✕</button></div><div class="account-layout"><section><h3>Existing operators</h3><div id="user-list" class="user-list"><p class="subtle">Loading operators…</p></div></section><form id="user-create-form" class="account-form"><h3>Create an operator</h3><p class="subtle">Assign the minimum access needed for this operator.</p><label>Username<input id="new-username" autocomplete="off" required minlength="3" maxlength="64" placeholder="analyst.name"></label><label>Temporary password<input id="new-password" type="password" autocomplete="new-password" required minlength="12" maxlength="256" placeholder="At least 12 characters"></label><label>Role<select id="new-role"><option>VIEWER</option><option>AUDITOR</option><option>SOC_ANALYST</option><option>ADMIN</option></select></label><p id="user-create-error" class="form-error" role="alert" hidden></p><button class="primary-action" type="submit">Create operator</button></form></div></dialog>
+<dialog id="password-change" class="account-modal compact-modal"><div class="modal-header"><div><span class="eyebrow">Account security</span><h2>Change password</h2></div><button type="button" id="cancel-password-change" class="close-btn" aria-label="Close">✕</button></div><form id="password-change-form" class="account-form"><label>Current password<input id="current-password" type="password" autocomplete="current-password" required></label><label>New password<input id="changed-password" type="password" autocomplete="new-password" required minlength="12" maxlength="256"></label><label>Confirm new password<input id="confirm-password" type="password" autocomplete="new-password" required minlength="12" maxlength="256"></label><p id="password-change-error" class="form-error" role="alert" hidden></p><button class="primary-action" type="submit">Update password</button><p class="subtle">Other active sessions will be signed out.</p></form></dialog>
+</div>
 </body>
 </html>

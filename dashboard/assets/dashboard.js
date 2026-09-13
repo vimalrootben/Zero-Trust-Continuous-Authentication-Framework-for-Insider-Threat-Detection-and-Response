@@ -16,7 +16,33 @@ const state = {
 async function apiFetch(url, options = {}) {
   const headers = new Headers(options.headers || {});
   if (state.adminToken) headers.set('Authorization', `Bearer ${state.adminToken}`);
-  return fetch(url, {...options, headers});
+  const response = await fetch(url, {...options, headers});
+  if (response.status === 401 && !url.endsWith('/auth/login')) lockDashboard();
+  return response;
+}
+
+function lockDashboard(message = '') {
+  sessionStorage.removeItem('ztaAccessToken');
+  state.adminToken = null; state.role = null; state.permissions = [];
+  if (state.ws) { state.ws.onclose = null; state.ws.close(); state.ws = null; }
+  document.body.classList.add('auth-pending');
+  $('app-shell').hidden = true;
+  $('login-page').hidden = false;
+  $('login-error').hidden = !message;
+  text('login-error', message);
+  setTimeout(() => $('login-username').focus(), 0);
+}
+
+function unlockDashboard(identity) {
+  state.role = identity.role;
+  state.permissions = identity.permissions || [];
+  $('user-role').value = state.role;
+  $('create-user').hidden = !state.permissions.includes('users:manage');
+  $('change-password').hidden = Boolean(identity.legacy);
+  $('sign-out').hidden = false;
+  $('login-page').hidden = true;
+  $('app-shell').hidden = false;
+  document.body.classList.remove('auth-pending');
 }
 
 const colors = ['#00749b', '#429fc0', '#007ac5', '#34cbb5', '#008779', '#f34d3f', '#e67e22', '#9b59b6'];
@@ -1477,61 +1503,63 @@ $('btn-create-policy').onclick = openCreatePolicyModal;
 
 // Authenticated operator session
 $('user-role').value = 'VIEWER';
-$('admin-auth-form').onsubmit = async event => {
+$('login-form').onsubmit = async event => {
   event.preventDefault();
-  const legacyToken = $('admin-token').value;
   const username = $('login-username').value.trim();
   const password = $('login-password').value;
-  let response;
-  if (legacyToken) {
-    state.adminToken = legacyToken;
-    response = await apiFetch('/api/zta/session');
-  } else {
-    response = await fetch('/api/zta/auth/login', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username, password})});
-    if (response.ok) {
-      const login = await response.json();
-      state.adminToken = login.access_token;
-      sessionStorage.setItem('ztaAccessToken', state.adminToken);
-      response = await apiFetch('/api/zta/session');
-    }
-  }
-  $('admin-token').value = '';
+  const submit = $('login-submit');
+  submit.disabled = true; submit.textContent = 'Verifying…';
+  $('login-error').hidden = true;
+  const response = await fetch('/api/zta/auth/login', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username, password})});
+  const result = await response.json();
+  submit.disabled = false; submit.textContent = 'Sign in securely';
   $('login-password').value = '';
-  const identity = await response.json();
   if (!response.ok) {
-    state.adminToken = null;
-    sessionStorage.removeItem('ztaAccessToken');
-    showToast(identity.error || 'Authentication failed', 'error');
+    $('login-error').hidden = false;
+    text('login-error', result.error || 'Authentication failed');
     return;
   }
-  state.role = identity.role;
-  state.permissions = identity.permissions || [];
-  $('user-role').value = state.role;
-  $('create-user').hidden = !state.permissions.includes('users:manage');
-  $('sign-out').hidden = false;
-  $('admin-auth').close();
-  showToast(`${identity.user} authenticated as ${state.role}`, 'success');
+  state.adminToken = result.access_token;
+  sessionStorage.setItem('ztaAccessToken', state.adminToken);
+  const identity = result.user;
+  unlockDashboard(identity);
+  showToast(`${identity.username} authenticated as ${state.role}`, 'success');
   await refresh();
   initWebSocket();
 };
-$('cancel-admin-auth').onclick = () => { if (state.role) $('admin-auth').close(); };
 $('sign-out').onclick = async () => {
   if (state.adminToken) await apiFetch('/api/zta/auth/logout', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
-  sessionStorage.removeItem('ztaAccessToken');
-  state.adminToken = null; state.role = null; state.permissions = [];
-  if (state.ws) state.ws.close();
-  $('sign-out').hidden = true; $('create-user').hidden = true;
-  $('admin-auth').showModal();
+  lockDashboard();
+  history.replaceState(null, '', location.pathname);
 };
-$('create-user').onclick = () => $('user-create').showModal();
+$('create-user').onclick = async () => {
+  $('user-create').showModal();
+  const response = await apiFetch('/api/zta/users');
+  const result = await response.json();
+  $('user-list').innerHTML = response.ok ? result.users.map(user => `<article class="user-row"><span class="user-avatar">${escapeHTML(user.username.slice(0, 2).toUpperCase())}</span><span><strong>${escapeHTML(user.username)}</strong><small>${escapeHTML(user.role.replace('_', ' '))}</small></span><span class="user-state">${user.enabled ? 'Active' : 'Disabled'}</span></article>`).join('') : `<p class="form-error">${escapeHTML(result.error || 'Unable to load operators')}</p>`;
+};
 $('cancel-user-create').onclick = () => $('user-create').close();
 $('user-create-form').onsubmit = async event => {
   event.preventDefault();
+  $('user-create-error').hidden = true;
   const response = await apiFetch('/api/zta/users', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username:$('new-username').value.trim(), password:$('new-password').value, role:$('new-role').value})});
   const result = await response.json();
-  if (!response.ok) { showToast(result.error || 'User creation failed', 'error'); return; }
-  $('user-create').close(); event.target.reset();
+  if (!response.ok) { $('user-create-error').hidden = false; text('user-create-error', result.error || 'User creation failed'); return; }
+  event.target.reset(); $('user-create').close();
   showToast(`Created ${result.user.username} as ${result.user.role}`, 'success');
+};
+$('change-password').onclick = () => $('password-change').showModal();
+$('cancel-password-change').onclick = () => $('password-change').close();
+$('password-change-form').onsubmit = async event => {
+  event.preventDefault();
+  const error = $('password-change-error'); error.hidden = true;
+  if ($('changed-password').value !== $('confirm-password').value) {
+    error.hidden = false; text('password-change-error', 'New passwords do not match.'); return;
+  }
+  const response = await apiFetch('/api/zta/auth/password', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({current_password:$('current-password').value, new_password:$('changed-password').value})});
+  const result = await response.json();
+  if (!response.ok) { error.hidden = false; text('password-change-error', result.error || 'Password change failed'); return; }
+  event.target.reset(); $('password-change').close(); showToast('Password changed successfully', 'success');
 };
 
 // Modals close buttons
@@ -1640,17 +1668,16 @@ $('report').onclick = () => {
 
 // Initial start: restore a session or require login before loading protected data.
 (async () => {
+  const storedToken = state.adminToken;
+  lockDashboard();
+  state.adminToken = storedToken;
   if (state.adminToken) {
     const response = await apiFetch('/api/zta/session');
     if (response.ok) {
       const identity = await response.json();
-      state.role = identity.role; state.permissions = identity.permissions || [];
-      $('user-role').value = state.role;
-      $('create-user').hidden = !state.permissions.includes('users:manage');
-      $('sign-out').hidden = false;
+      unlockDashboard(identity);
       await refresh(); initWebSocket(); return;
     }
-    sessionStorage.removeItem('ztaAccessToken'); state.adminToken = null;
   }
-  $('admin-auth').showModal();
+  lockDashboard();
 })();

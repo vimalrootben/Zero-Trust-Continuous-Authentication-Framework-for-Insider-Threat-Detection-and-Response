@@ -16,6 +16,7 @@ Updated: 2026-09-14 (Asia/Calcutta)
 - Bounded regex matching to 4096 input characters and 25 ms, with explicit timeout/limit evidence in condition traces.
 - Added immutable rule definition history, rollback-as-new-version, linked-policy deletion protection, and version-stamped match/incident evidence.
 - Started the live manager (PID `24580`) and `agent-local` (PID `19328`) using authenticated process-local agent credentials; dashboard and agent API listen on ports 8000/8080.
+- Added dedicated login/operator-management/password-change pages, a hard pre-session dashboard gate, and logout redirection to login.
 
 ## Source state
 
@@ -27,6 +28,7 @@ Updated: 2026-09-14 (Asia/Calcutta)
 - Rule-validation base commit: `cb634cf9a1588f5a142ea8a51a3ce1f7983a548c`; branch: `fix/rule-activation-validation`.
 - Regex-cost base commit: `1ae3ce7eed605abbc711a710a0f5acd17e920dd4`; branch: `fix/regex-evaluation-cost`.
 - Rule-version base commit: `2deb54e97d54981f0d95a42141a9bdd382ee3507`; branch: `feat/rule-version-rollback`.
+- Operator-pages base commit: `b085718070c41a474b1cd3a3ec63a7c3eb44a5ba`; branch: `feat/operator-auth-pages`.
 - Runtime artifacts created during smoke test: `.venv/`, `zta_runtime.db`, `storage/zta_agent_local.db`, and manager/agent log files.
 
 ## Tests
@@ -47,7 +49,8 @@ Updated: 2026-09-14 (Asia/Calcutta)
 - Warning: Requests reports no acceptable character-detection dependency under the current Python 3.14.7 environment.
 - Runtime limitation: Sysmon channel was absent (exit 15007) and Security log access was denied (exit 5); heartbeats still succeeded.
 - Live verification: dashboard `GET /` returned HTTP 200; authenticated heartbeat returned HTTP 200 and offline sync returned HTTP 201. The old offline cache signature is invalid under the fresh process-local token and was safely rejected.
+- Operator-pages regression: `27 passed in 19.02s`; full regression: `136 passed in 45.38s`. Static UI contract checks passed; browser screenshot QA was unavailable because no browser surface was connected.
 
 ## Next task
 
-Define user disable/password-reset and session-revocation administration flows, then remove the legacy bootstrap token from deployment.
+Define user disable/admin-reset flows, then remove the legacy bootstrap token from deployment after test/bootstrap clients migrate to named sessions.
