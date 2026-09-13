@@ -16,7 +16,7 @@ Updated: 2026-09-14 (Asia/Calcutta)
 
 - Baseline commit: `a2fc14e` (`chore: establish imported project baseline`).
 - Baseline tag: `baseline-2026-09-13` (annotated).
-- Current implementation commit: `a2fc14e`; current bounded change branch: `chore/git-workflow-records`.
+- Current implementation commit: `aa0cf0dc8aa4f67b28688456e0e636381a92e992`; branch: `feat/permission-access`.
 - Git executable: `C:\Program Files\Git\cmd\git.exe`; repository-local author is `Codex Agent <codex@local>`.
 - Access-control base commit: `7f0ad172c49355aa85b742345fecfccc30da182d`; branch: `feat/permission-access`.
 - Runtime artifacts created during smoke test: `.venv/`, `zta_runtime.db`, `storage/zta_agent_local.db`, and manager/agent log files.
