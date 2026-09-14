@@ -103,7 +103,7 @@ def test_authentication_expiry_and_wrong_agent(runtime):
     server,agent=runtime
     url=agent.manager_url
     assert requests.post(url+'/api/v1/agents/heartbeat',json={'agent_id':'endpoint'}).status_code==400
-    assert requests.post(url+'/api/zta/commands',json={'agent_id':'endpoint','action':'LOGOUT_USER'},headers={'X-User-Role':'ADMIN'}).status_code==403
+    assert requests.post(url+'/api/zta/commands',json={'agent_id':'endpoint','action':'LOGOUT_USER'},headers={'X-User-Role':'ADMIN'}).status_code==401
     executor=MagicMock();agent.command_receiver.ps_executor=executor
     cmd={'command_id':'x','agent_id':'endpoint','action_type':'LOGOUT_USER','params':{'UserName':'user','SessionId':'7'},'status':'DISPATCHED','expires_at':(datetime.now(timezone.utc)-timedelta(seconds=1)).isoformat()}
     report=agent.command_receiver.process_command(sign(cmd,TOKEN));assert report.status=='FAILED'
@@ -228,7 +228,7 @@ def test_websocket_shared_across_agent_and_dashboard_ports(runtime):
     thread=threading.Thread(target=dashboard.serve_forever,daemon=True);thread.start()
     sock=socket.create_connection(('127.0.0.1',dashboard.server_port),timeout=3)
     try:
-        sock.sendall((f'GET /api/zta/ws HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: {base64.b64encode(b"0123456789abcdef").decode()}\r\nSec-WebSocket-Version: 13\r\n\r\n').encode())
+        sock.sendall((f'GET /api/zta/ws HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: {base64.b64encode(b"0123456789abcdef").decode()}\r\nSec-WebSocket-Version: 13\r\nAuthorization: Bearer test-admin-credential\r\n\r\n').encode())
         data=b''
         while b'\r\n\r\n' not in data: data+=sock.recv(1)
         assert b'101 Switching Protocols' in data

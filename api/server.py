@@ -19,6 +19,7 @@ from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
 from zta.agent.commands.command_receiver import AgentCommandReceiver
+from zta.api.auth import OperatorAuth
 from zta.engine.correlation.engine import ZTACorrelationEngine
 from zta.engine.events.conditions import ConditionEvaluator, InvalidConditionError
 from zta.engine.events.models import ZTAEvent
@@ -103,17 +104,21 @@ class WebSocketHub:
 
     def __init__(self):
         self._ws_clients: Set[Any] = set()
+        self._ws_authorizers = {}
         self._sse_clients: Set[Any] = set()
         self._lock = threading.Lock()
         self._local = threading.local()
 
-    def register_ws(self, client):
+    def register_ws(self, client, authorize=None):
         with self._lock:
             self._ws_clients.add(client)
+            if authorize is not None:
+                self._ws_authorizers[client] = authorize
 
     def unregister_ws(self, client):
         with self._lock:
             self._ws_clients.discard(client)
+            self._ws_authorizers.pop(client, None)
 
     def register_sse(self, client):
         with self._lock:
@@ -152,11 +157,18 @@ class WebSocketHub:
             dead_ws = set()
             for client in self._ws_clients:
                 try:
+                    authorize = self._ws_authorizers.get(client)
+                    if authorize is not None and not authorize():
+                        dead_ws.add(client)
+                        client.close_connection = True
+                        continue
                     client.wfile.write(frame)
                     client.wfile.flush()
                 except Exception:
                     dead_ws.add(client)
             self._ws_clients.difference_update(dead_ws)
+            for client in dead_ws:
+                self._ws_authorizers.pop(client, None)
 
             # SSE framing
             sse_data = f"event: {event_type}\ndata: {payload}\n\n".encode("utf-8")
@@ -230,19 +242,36 @@ class ZTAApiHandler(SimpleHTTPRequestHandler):
         return None
 
     @property
+    def _bearer_token(self):
+        value = self.headers.get("Authorization", "")
+        return value[7:].strip() if value.startswith("Bearer ") else ""
+
+    @property
+    def _identity(self):
+        return OperatorAuth(self.repo.db).identity(self._bearer_token)
+
+    @property
     def _role(self):
-        token = os.environ.get("ZTA_ADMIN_TOKEN", "")
-        supplied = self.headers.get("Authorization", "").removeprefix("Bearer ")
-        return "ADMIN" if token and hmac.compare_digest(supplied, token) else "VIEWER"
+        identity = self._identity
+        return identity["role"] if identity else None
 
     @property
     def _actor(self):
-        return "authenticated-admin" if self._role == "ADMIN" else "viewer"
+        identity = self._identity
+        return identity["username"] if identity else "anonymous"
+
+    def _require_permission(self, permission):
+        identity = self._identity
+        if not identity:
+            self._send_json({"error": "Authentication required"}, 401)
+            return False
+        if permission in identity["permissions"]:
+            return True
+        self._send_json({"error": f"Permission '{permission}' required"}, 403)
+        return False
 
     def _check_rbac(self, required_role="ADMIN"):
-        if self._role == "ADMIN": return True
-        self._send_json({"error": "Authenticated administrator credential required"}, 403)
-        return False
+        return self._require_permission("config:write")
 
     def _agent_secret(self, agent_id):
         return json.loads(os.environ.get("ZTA_AGENT_TOKENS", "{}" )).get(agent_id, "")
@@ -269,7 +298,7 @@ class ZTAApiHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _handle_websocket(self):
+    def _handle_websocket(self, protocol=None, token=None):
         """Performs WebSocket handshake (RFC 6455) and registers client."""
         key = self.headers.get("Sec-WebSocket-Key", "")
         accept_guid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
@@ -280,10 +309,17 @@ class ZTAApiHandler(SimpleHTTPRequestHandler):
         self.send_header("Upgrade", "websocket")
         self.send_header("Connection", "Upgrade")
         self.send_header("Sec-WebSocket-Accept", accept_token)
+        if protocol:
+            self.send_header("Sec-WebSocket-Protocol", protocol)
         self.end_headers()
 
         self.connection.settimeout(5)
-        self.hub.register_ws(self)
+        self.close_connection = False
+        def authorized():
+            identity = OperatorAuth(self.repo.db).identity(token)
+            return identity is not None and "stream" in identity["permissions"]
+
+        self.hub.register_ws(self, authorized)
         def read_exact(length):
             value = b''
             while len(value) < length:
@@ -293,6 +329,8 @@ class ZTAApiHandler(SimpleHTTPRequestHandler):
             return value
         try:
             while not self.worker.stop_event.is_set():
+                if self.close_connection or not authorized():
+                    break
                 if not select.select([self.connection], [], [], 1)[0]: continue
                 first, second = read_exact(2)
                 opcode, length = first & 15, second & 127
@@ -322,12 +360,35 @@ class ZTAApiHandler(SimpleHTTPRequestHandler):
             if self.headers.get("Upgrade", "").lower() != "websocket":
                 self._send_json({"error":"WebSocket upgrade required"},400)
                 return
-            self._handle_websocket()
+            protocols = [item.strip() for item in self.headers.get("Sec-WebSocket-Protocol", "").split(",")]
+            auth_protocol = next((item for item in protocols if item.startswith("zta-token.")), None)
+            token = auth_protocol.removeprefix("zta-token.") if auth_protocol else self._bearer_token
+            identity = OperatorAuth(self.repo.db).identity(token)
+            if not identity:
+                self._send_json({"error": "Authentication required"}, 401)
+                return
+            if "stream" not in identity["permissions"]:
+                self._send_json({"error": "Permission 'stream' required"}, 403)
+                return
+            self._handle_websocket(auth_protocol, token)
             return
 
         if path == "/api/zta/session":
-            self._send_json({"role": self._role})
+            identity = self._identity
+            if not identity:
+                self._send_json({"authenticated": False, "error": "Authentication required"}, 401)
+                return
+            self._send_json({"authenticated": True, "user": identity["username"], "role": identity["role"], "permissions": identity["permissions"]})
             return
+
+        if path == "/api/zta/users":
+            if not self._require_permission("users:manage"): return
+            self._send_json({"users": OperatorAuth(self.repo.db).list_users()})
+            return
+
+        if path.startswith("/api/zta/") or path.startswith("/api/v1/analytics/") or path == "/api/v1/agents/logs":
+            permission = "audit:read" if path == "/api/zta/audit" else "read"
+            if not self._require_permission(permission): return
 
         if path in ("/api/zta/schema", "/api/zta/rules/schema"):
             self._send_json(SCHEMA_DATA)
@@ -584,6 +645,38 @@ class ZTAApiHandler(SimpleHTTPRequestHandler):
                 raise ValueError("JSON body must be between 1 byte and 5 MB")
             payload = json.loads(self.rfile.read(length))
             path = urlparse(self.path).path.rstrip("/")
+            if path != "/api/v1/telemetry/bulk" and not isinstance(payload, dict):
+                raise ValueError("Expected a JSON object")
+
+            if path == "/api/zta/auth/login":
+                result = OperatorAuth(self.repo.db).login(payload.get("username"), payload.get("password"))
+                if not result:
+                    self._send_json({"error": "Invalid username or password"}, 401)
+                else:
+                    self._send_json(result)
+                return
+
+            if path == "/api/zta/auth/logout":
+                if not self._require_permission("read"): return
+                OperatorAuth(self.repo.db).logout(self._bearer_token)
+                self._send_json({"status": "LOGGED_OUT"})
+                return
+
+            if path == "/api/zta/users":
+                if not self._require_permission("users:manage"): return
+                user = OperatorAuth(self.repo.db).create_user(payload, self._actor)
+                self.repo.save_audit("USER_CREATED", f"Operator {user['username']} created with role {user['role']}", user=self._actor)
+                self._send_json({"user": user}, 201)
+                return
+
+            if path.startswith("/api/zta/"):
+                if path.startswith(("/api/zta/actions", "/api/zta/commands")) or (path.startswith("/api/zta/events/") and path.endswith("/retry")):
+                    permission = "response:write"
+                elif path.startswith(("/api/zta/rules", "/api/zta/policies")):
+                    permission = "config:write"
+                else:
+                    permission = "config:write"
+                if not self._require_permission(permission): return
 
             if path == "/api/v1/agents/heartbeat":
                 if not isinstance(payload, dict) or not isinstance(payload.get("agent_id"), str) or not payload["agent_id"].strip():
@@ -665,6 +758,7 @@ class ZTAApiHandler(SimpleHTTPRequestHandler):
                 self._send_json({'status':'PENDING','event_id':event_id})
 
             elif path == "/api/zta/actions/execute":
+                if not self._require_permission("response:write"): return
                 if not isinstance(payload, dict):
                     raise ValueError("Expected a JSON object")
                 action = payload.get("action")
@@ -700,7 +794,7 @@ class ZTAApiHandler(SimpleHTTPRequestHandler):
                     }, 409)
 
             elif path in ("/api/v1/commands", "/api/zta/commands"):
-                if not self._check_rbac(): return
+                if not self._require_permission("response:write"): return
                 if not isinstance(payload, dict):
                     raise ValueError("Expected a JSON object")
                 action = payload.get("action") or payload.get("action_type")
@@ -738,6 +832,7 @@ class ZTAApiHandler(SimpleHTTPRequestHandler):
                     event_type="COMMAND_CREATED",
                     action=f"Manual SOC command {action} dispatched to agent {agent_id}",
                     agent_id=agent_id,
+                    user=self._actor,
                     details={"command_id": command_id, "action": action, "params": params},
                     execution_source="MANAGER",
                 )

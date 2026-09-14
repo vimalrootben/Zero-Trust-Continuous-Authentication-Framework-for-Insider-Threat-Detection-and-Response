@@ -388,7 +388,8 @@ class TestDashboardAnalytics:
                 conn.commit()
 
             # Test /api/zta/analytics/risk-distribution
-            resp = requests.get(f"http://127.0.0.1:{port}/api/zta/analytics/risk-distribution", timeout=5)
+            operator_headers = {"Authorization": "Bearer fixture-admin-token"}
+            resp = requests.get(f"http://127.0.0.1:{port}/api/zta/analytics/risk-distribution", headers=operator_headers, timeout=5)
             assert resp.status_code == 200
             risk_data = resp.json()
             assert "distribution" in risk_data
@@ -397,7 +398,7 @@ class TestDashboardAnalytics:
             assert risk_data["distribution"]["high"] == 1
 
             # Test /api/zta/analytics/events-timeseries (1h / 24h / 7d)
-            resp_ts = requests.get(f"http://127.0.0.1:{port}/api/zta/analytics/events-timeseries?range=24h", timeout=5)
+            resp_ts = requests.get(f"http://127.0.0.1:{port}/api/zta/analytics/events-timeseries?range=24h", headers=operator_headers, timeout=5)
             assert resp_ts.status_code == 200
             ts_data = resp_ts.json()
             assert "points" in ts_data
@@ -406,14 +407,14 @@ class TestDashboardAnalytics:
             assert isinstance(ts_data["points"], list)
 
             # Test /api/zta/analytics/mitre-coverage
-            resp_mitre = requests.get(f"http://127.0.0.1:{port}/api/zta/analytics/mitre-coverage", timeout=5)
+            resp_mitre = requests.get(f"http://127.0.0.1:{port}/api/zta/analytics/mitre-coverage", headers=operator_headers, timeout=5)
             assert resp_mitre.status_code == 200
             mitre_data = resp_mitre.json()
             assert "techniques" in mitre_data
             assert "tactics" in mitre_data
 
             # Test /api/v1/agents/logs
-            resp_logs = requests.get(f"http://127.0.0.1:{port}/api/v1/agents/logs?agent_id=AG-ANALYTICS", timeout=5)
+            resp_logs = requests.get(f"http://127.0.0.1:{port}/api/v1/agents/logs?agent_id=AG-ANALYTICS", headers=operator_headers, timeout=5)
             assert resp_logs.status_code == 200
             logs_data = resp_logs.json()
             assert "logs" in logs_data

@@ -10,3 +10,11 @@ Review and sequential merge verification — 2026-09-14
 - Documentation still contains historical native-Wazuh paths and old Windows test results; these are not current deployment evidence.
 - Real Windows/Sysmon telemetry, mTLS deployment, and disruptive response verification require disposable infrastructure not provided here. No disruptive action was run on the working computer.
 - Remaining feature branches will be reviewed and tested individually in ancestry order.
+
+2. feat/permission-access -> main
+- Reviewed authenticated operator reads/writes, roles, password/session storage, bootstrap compatibility, protected streams and additive operator-table migration.
+- Before fixes: 116 tests passed. Fixed open WebSockets retaining access after logout, expiry or account disable; authorization is rechecked before delivery and while idle.
+- Bounded password verification inputs, handled non-ASCII invalid bearer tokens, and rejected malformed object requests while preserving telemetry arrays. Added four regression cases.
+- Intermediate fix run: 110 passed, 10 failed because overly broad validation rejected bulk arrays; corrected before publication. Final: 120 passed in 31.33s. JavaScript syntax, Python compilation and diff checks passed.
+- Resolved plan/status documentation conflicts retaining feature records and current review evidence.
+- Remaining: user reset/disable administration UI is not implemented; TLS termination/client-certificate deployment is external. Analytics range handling found during review is queued for the final integration stage.

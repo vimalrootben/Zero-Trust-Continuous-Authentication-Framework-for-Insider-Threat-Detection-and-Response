@@ -45,11 +45,25 @@ def api_request(base_url, path, method="GET", body=None, role="ADMIN"):
     """Helper to send HTTP requests to ZTA API with JSON headers and RBAC role."""
     url = f"{base_url}{path}"
     data = json.dumps(body).encode("utf-8") if body is not None else None
+    token = "fixture-admin-token"
+    if role != "ADMIN":
+        username = f"test-{role.lower()}"
+        create_data = json.dumps({"username": username, "password": "correct horse battery staple", "role": role}).encode("utf-8")
+        create_req = urllib.request.Request(f"{base_url}/api/zta/users", data=create_data, headers={"Content-Type":"application/json", "Authorization":"Bearer fixture-admin-token"}, method="POST")
+        try:
+            urllib.request.urlopen(create_req).read()
+        except urllib.error.HTTPError as exc:
+            if exc.code != 400: raise
+        login_data = json.dumps({"username":username, "password":"correct horse battery staple"}).encode("utf-8")
+        login_req = urllib.request.Request(f"{base_url}/api/zta/auth/login", data=login_data, headers={"Content-Type":"application/json"}, method="POST")
+        token = json.loads(urllib.request.urlopen(login_req).read())["access_token"]
     headers = {
         "Content-Type": "application/json",
         "X-User-Role": role,
+        "Authorization": "Bearer " + token,
     }
-    headers.update(auth_headers(path, role))
+    if path.startswith("/api/v1/agents/") or "/telemetry/" in path or "/sync/" in path or "/commands/result" in path:
+        headers.update(auth_headers(path, role))
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
         with urllib.request.urlopen(req) as resp:

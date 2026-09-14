@@ -67,7 +67,7 @@ def test_api_server_endpoints(tmp_path):
     try:
         # Test GET /api/zta/overview
         url = f"http://127.0.0.1:{server.server_port}/api/zta/overview"
-        req = urllib.request.urlopen(url)
+        req = urllib.request.urlopen(urllib.request.Request(url, headers={"Authorization": "Bearer fixture-admin-token"}))
         assert req.status == 200
         data = json.loads(req.read().decode("utf-8"))
         assert data["system"] == "ZTA (Zero Trust Architecture)"
@@ -76,7 +76,7 @@ def test_api_server_endpoints(tmp_path):
         # Test POST /api/zta/actions/execute
         post_url = f"http://127.0.0.1:{server.server_port}/api/zta/actions/execute"
         post_data = json.dumps({"action": "ISOLATE_ENDPOINT", "agent_id": "001"}).encode("utf-8")
-        post_req = urllib.request.Request(post_url, data=post_data, headers={"Content-Type": "application/json"})
+        post_req = urllib.request.Request(post_url, data=post_data, headers={"Content-Type": "application/json", "Authorization": "Bearer fixture-admin-token"})
         resp = urllib.request.urlopen(post_req)
         assert resp.status == 200
         post_resp = json.loads(resp.read().decode("utf-8"))
