@@ -1,4 +1,4 @@
-"""Operator authentication, authorization, and user lifecycle tests."""
+﻿"""Operator authentication, authorization, and user lifecycle tests."""
 
 import json
 import socket
@@ -143,4 +143,39 @@ def test_malformed_auth_requests_are_rejected_without_breaking_server(auth_serve
     for password in (None, {}, 'x' * 257):
         assert request(base, '/api/zta/auth/login', 'POST',
                        {'username': 'input.viewer', 'password': password})[0] == 401
-    assert request(base, '/api/zta/session', token='é')[0] == 401
+    assert request(base, '/api/zta/session', token='Ã©')[0] == 401
+def test_password_change_validates_current_password_and_revokes_other_sessions(auth_server):
+    _server, base = auth_server
+    current = create_and_login(base, "credential.user", "VIEWER")
+    _, second_login = request(base, "/api/zta/auth/login", "POST", {
+        "username": "credential.user", "password": "correct horse battery staple",
+    })
+    other_session = second_login["access_token"]
+
+    status, result = request(base, "/api/zta/auth/password", "POST", {
+        "current_password": "not the current password", "new_password": "a completely new secure password",
+    }, current)
+    assert status == 400 and "Current password" in result["error"]
+
+    status, result = request(base, "/api/zta/auth/password", "POST", {
+        "current_password": "correct horse battery staple", "new_password": "a completely new secure password",
+    }, current)
+    assert status == 200 and result["status"] == "PASSWORD_CHANGED"
+    assert request(base, "/api/zta/session", token=current)[0] == 200
+    assert request(base, "/api/zta/session", token=other_session)[0] == 401
+    assert request(base, "/api/zta/auth/login", "POST", {
+        "username": "credential.user", "password": "correct horse battery staple",
+    })[0] == 401
+    assert request(base, "/api/zta/auth/login", "POST", {
+        "username": "credential.user", "password": "a completely new secure password",
+    })[0] == 200
+
+
+def test_dashboard_has_dedicated_authentication_pages():
+    root = __import__("pathlib").Path(__file__).resolve().parents[1]
+    html = (root / "dashboard" / "index.html").read_text(encoding="utf-8")
+    script = (root / "dashboard" / "assets" / "dashboard.js").read_text(encoding="utf-8")
+    assert 'id="login-page"' in html and 'id="app-shell" hidden' in html
+    assert 'id="password-change"' in html and 'id="user-list"' in html
+    assert "Legacy administrator token" not in html
+    assert "lockDashboard();" in script and "history.replaceState" in script

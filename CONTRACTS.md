@@ -18,6 +18,7 @@ Optional/defaulted: `user: {name?, domain?, session_id?}`, `process: {name?, pat
 ## Operator API
 
 - `POST /api/zta/auth/login`: `{username,password}` -> `{access_token,token_type,expires_at,user}`; `POST /api/zta/auth/logout` revokes the presented session.
+- `POST /api/zta/auth/password`: `{current_password,new_password}` changes the named operator's password, preserves the current session, and revokes their other sessions. Passwords are 12-256 characters and must differ.
 - `GET /api/zta/session`: authenticated identity, role, and permissions.
 - `GET|POST /api/zta/users`: list/create operators; creation requires `{username,password,role}` and `users:manage`.
 - Read: `/api/zta/{overview,agents,events,rules,policies,incidents,commands,timeline,audit,services,logs}` plus analytics and schema endpoints.
@@ -41,6 +42,7 @@ Optional/defaulted: `user: {name?, domain?, session_id?}`, `process: {name?, pat
 
 - Migration `20260914-operator-rbac` adds `operator_users`, `operator_sessions`, and a session-expiry index. It is additive/idempotent; existing security/event data is unchanged and rollback can leave the unused tables in place.
 - `ZTA_ADMIN_TOKEN` remains a legacy `ADMIN` operator credential for bootstrap/compatibility. Per-agent bearer authentication and `/api/v1` ingestion payloads are unchanged.
+- The dashboard exposes username/password login only; the legacy token is not accepted through the operator UI.
 - Previously public operator reads/streams now require authentication; clients must supply a bearer session (or legacy admin token).
 - Rule validation adds no schema migration. Existing valid persisted rules remain compatible; stored invalid rules remain readable but must be corrected before activation.
 - Regex safety adds the `regex>=2024.11.6` runtime dependency and no schema change. On Windows, avoid excessively long environment paths because extension DLL loading remains OS-path limited.

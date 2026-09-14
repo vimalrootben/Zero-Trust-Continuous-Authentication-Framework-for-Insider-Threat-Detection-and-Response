@@ -1,5 +1,10 @@
 # Plan
 
+## Completed - Operator authentication pages
+
+- Added a dedicated responsive login page, hard dashboard session gate, admin operator-management page, self-service password change, and logout-to-login behavior.
+- Acceptance: unauthenticated UI cannot render/load dashboard data; user creation remains permission-gated; password change revokes other sessions; focused and full regressions pass.
+
 ## Completed - Recoverable rule changes
 
 - Added immutable definition versions, append-only rollback, linked-policy deletion protection, and rule-version evidence on matches/incidents.
