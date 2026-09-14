@@ -104,17 +104,21 @@ class WebSocketHub:
 
     def __init__(self):
         self._ws_clients: Set[Any] = set()
+        self._ws_authorizers = {}
         self._sse_clients: Set[Any] = set()
         self._lock = threading.Lock()
         self._local = threading.local()
 
-    def register_ws(self, client):
+    def register_ws(self, client, authorize=None):
         with self._lock:
             self._ws_clients.add(client)
+            if authorize is not None:
+                self._ws_authorizers[client] = authorize
 
     def unregister_ws(self, client):
         with self._lock:
             self._ws_clients.discard(client)
+            self._ws_authorizers.pop(client, None)
 
     def register_sse(self, client):
         with self._lock:
@@ -153,11 +157,18 @@ class WebSocketHub:
             dead_ws = set()
             for client in self._ws_clients:
                 try:
+                    authorize = self._ws_authorizers.get(client)
+                    if authorize is not None and not authorize():
+                        dead_ws.add(client)
+                        client.close_connection = True
+                        continue
                     client.wfile.write(frame)
                     client.wfile.flush()
                 except Exception:
                     dead_ws.add(client)
             self._ws_clients.difference_update(dead_ws)
+            for client in dead_ws:
+                self._ws_authorizers.pop(client, None)
 
             # SSE framing
             sse_data = f"event: {event_type}\ndata: {payload}\n\n".encode("utf-8")
@@ -287,7 +298,7 @@ class ZTAApiHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _handle_websocket(self, protocol=None):
+    def _handle_websocket(self, protocol=None, token=None):
         """Performs WebSocket handshake (RFC 6455) and registers client."""
         key = self.headers.get("Sec-WebSocket-Key", "")
         accept_guid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
@@ -303,7 +314,12 @@ class ZTAApiHandler(SimpleHTTPRequestHandler):
         self.end_headers()
 
         self.connection.settimeout(5)
-        self.hub.register_ws(self)
+        self.close_connection = False
+        def authorized():
+            identity = OperatorAuth(self.repo.db).identity(token)
+            return identity is not None and "stream" in identity["permissions"]
+
+        self.hub.register_ws(self, authorized)
         def read_exact(length):
             value = b''
             while len(value) < length:
@@ -313,6 +329,8 @@ class ZTAApiHandler(SimpleHTTPRequestHandler):
             return value
         try:
             while not self.worker.stop_event.is_set():
+                if self.close_connection or not authorized():
+                    break
                 if not select.select([self.connection], [], [], 1)[0]: continue
                 first, second = read_exact(2)
                 opcode, length = first & 15, second & 127
@@ -352,7 +370,7 @@ class ZTAApiHandler(SimpleHTTPRequestHandler):
             if "stream" not in identity["permissions"]:
                 self._send_json({"error": "Permission 'stream' required"}, 403)
                 return
-            self._handle_websocket(auth_protocol)
+            self._handle_websocket(auth_protocol, token)
             return
 
         if path == "/api/zta/session":
@@ -627,6 +645,8 @@ class ZTAApiHandler(SimpleHTTPRequestHandler):
                 raise ValueError("JSON body must be between 1 byte and 5 MB")
             payload = json.loads(self.rfile.read(length))
             path = urlparse(self.path).path.rstrip("/")
+            if path != "/api/v1/telemetry/bulk" and not isinstance(payload, dict):
+                raise ValueError("Expected a JSON object")
 
             if path == "/api/zta/auth/login":
                 result = OperatorAuth(self.repo.db).login(payload.get("username"), payload.get("password"))

@@ -2,6 +2,8 @@
 
 Updated: 2026-09-14 (Asia/Calcutta)
 
+Current review (2026-09-14): permissions branch passes 120 tests after live-stream revocation and auth-input fixes. Historical records below describe the original Windows environment. See update.txt for current evidence.
+
 ## Completed
 
 - Created `.venv` with declared dependencies.

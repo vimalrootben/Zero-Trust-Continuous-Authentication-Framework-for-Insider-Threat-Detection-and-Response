@@ -1,0 +1,20 @@
+Review and sequential merge verification — 2026-09-14
+
+1. chore/git-workflow-records -> main
+- Reviewed README, installation, architecture, contracts, plan, status and test configuration. No AGENTS.md exists in the repository.
+- Joined independent imported development and default histories; resolved README add/add conflict by preserving the default-branch README. Runtime code is identical.
+- Baseline main 38a39091d4f8af6b8a74c0bbe53f899b13d6e8fe: 113 pytest tests passed in 22.82s. Initial sandbox run: 78 passed, 6 failed, 29 errors due to socket restrictions; rerun with local networking passed.
+- Isolated venv: Python 3.14, documented requirements plus editable package build succeeded. JavaScript syntax and Python source compilation passed.
+- Combined first branch: 113 pytest tests passed; git diff --check passed.
+- No dedicated lint/type-check configuration or GitHub workflow exists.
+- Documentation still contains historical native-Wazuh paths and old Windows test results; these are not current deployment evidence.
+- Real Windows/Sysmon telemetry, mTLS deployment, and disruptive response verification require disposable infrastructure not provided here. No disruptive action was run on the working computer.
+- Remaining feature branches will be reviewed and tested individually in ancestry order.
+
+2. feat/permission-access -> main
+- Reviewed authenticated operator reads/writes, roles, password/session storage, bootstrap compatibility, protected streams and additive operator-table migration.
+- Before fixes: 116 tests passed. Fixed open WebSockets retaining access after logout, expiry or account disable; authorization is rechecked before delivery and while idle.
+- Bounded password verification inputs, handled non-ASCII invalid bearer tokens, and rejected malformed object requests while preserving telemetry arrays. Added four regression cases.
+- Intermediate fix run: 110 passed, 10 failed because overly broad validation rejected bulk arrays; corrected before publication. Final: 120 passed in 31.33s. JavaScript syntax, Python compilation and diff checks passed.
+- Resolved plan/status documentation conflicts retaining feature records and current review evidence.
+- Remaining: user reset/disable administration UI is not implemented; TLS termination/client-certificate deployment is external. Analytics range handling found during review is queued for the final integration stage.
