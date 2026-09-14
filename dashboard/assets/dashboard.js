@@ -671,6 +671,7 @@ function openCreatePolicyModal() {
 
   $('pb-min-risk').value = '85';
   $('pb-max-risk').value = '100';
+  $('pb-priority').value = '1000';
   $('pb-allow-offline').checked = false;
 
   // Populate linked rules dropdown
@@ -705,6 +706,7 @@ function openEditPolicyModal(policy) {
 
   $('pb-min-risk').value = policy.min_risk !== undefined ? policy.min_risk : 85;
   $('pb-max-risk').value = policy.max_risk !== undefined ? policy.max_risk : 100;
+  $('pb-priority').value = policy.priority !== undefined ? policy.priority : 1000;
   $('pb-allow-offline').checked = Boolean(policy.allow_offline);
 
   const ruleSelect = $('pb-linked-rule');
@@ -745,6 +747,7 @@ async function validatePolicyLogic() {
     action: $('pb-action').value,
     min_risk: Number($('pb-min-risk').value),
     max_risk: Number($('pb-max-risk').value),
+    priority: Number($('pb-priority').value),
     mode: $('pb-mode').value,
     condition: cond
   };
@@ -788,6 +791,7 @@ async function savePolicy(e) {
     rule_id: $('pb-linked-rule').value || null,
     min_risk: Number($('pb-min-risk').value) || 0,
     max_risk: Number($('pb-max-risk').value) || 100,
+    priority: Number($('pb-priority').value),
     allow_offline: $('pb-allow-offline').checked ? 1 : 0,
     enabled: $('pb-enabled').checked ? 1 : 0,
     condition: cond
@@ -850,6 +854,7 @@ function openPolicyDetails(policy) {
   text('pd-mode', policy.mode || 'UNKNOWN');
   text('pd-action', policy.action);
   text('pd-risk-range', `[${policy.min_risk} – ${policy.max_risk}]`);
+  text('pd-priority', policy.priority ?? 1000);
   text('pd-total-triggers', fmt(policy.total_triggers || 0));
   text('pd-desc', policy.description || 'No description provided.');
 
@@ -1143,7 +1148,7 @@ function render() {
       });
     } else {
       text('table-title', 'Adaptive Zero Trust Policies');
-      headings = ['Policy Code', 'Policy Name', 'Category', 'Severity', 'Mode', 'Risk Range', 'Action', 'Linked Rule', 'Total Triggers', 'Status', 'Actions'];
+      headings = ['Priority', 'Policy Code', 'Policy Name', 'Category', 'Severity', 'Mode', 'Risk Range', 'Action', 'Linked Rule', 'Total Triggers', 'Status', 'Actions'];
       const catFilter = $('filter-policy-category').value;
       const sevFilter = $('filter-policy-severity').value;
       const modeFilter = $('filter-policy-mode').value;
@@ -1230,6 +1235,7 @@ function render() {
         ? `<button class="rule-link-btn" data-open-rule="${row.rule_id}">🔗 ${escapeHTML(row.rule_id)}</button>`
         : '<span class="subtle">None (Risk range)</span>';
       cells = [
+        `<strong>${escapeHTML(row.priority ?? 1000)}</strong>`,
         `<button class="row-code-btn" data-view-policy="${row.policy_id}">› ${escapeHTML(row.code || row.policy_id)}</button>`,
         escapeHTML(row.name),
         escapeHTML(row.category),

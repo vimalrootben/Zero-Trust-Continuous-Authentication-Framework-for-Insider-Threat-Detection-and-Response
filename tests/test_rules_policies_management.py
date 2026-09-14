@@ -410,6 +410,37 @@ def test_policy_crud_toggle_and_rule_linking(test_server):
     assert "POL-TEST-001" not in linked_codes_updated
 
 
+@pytest.mark.parametrize("mutation", [
+    {"priority": -1}, {"priority": 10001}, {"priority": "10"},
+    {"min_risk": 80, "max_risk": 20}, {"mode": "MAYBE"},
+    {"action": "RUN_SCRIPT"}, {"severity": "URGENT"},
+])
+def test_invalid_policy_definitions_are_rejected(test_server, mutation):
+    payload = {
+        "code": "POL-INVALID-001", "name": "Invalid policy", "category": "General",
+        "severity": "HIGH", "mode": "ENFORCE", "action": "ALERT", "priority": 100,
+        "min_risk": 0, "max_risk": 100, "risk_threshold": 85,
+        "enabled": True, "allow_offline": False,
+    }
+    payload.update(mutation)
+    status, result = api_request(test_server["base_url"], "/api/zta/policies", method="POST", body=payload)
+    assert status == 400
+    assert result.get("error")
+
+
+def test_policy_priority_is_persisted_and_exposed(test_server):
+    payload = {
+        "code": "POL-PRIORITY-001", "name": "Priority policy", "category": "General",
+        "severity": "HIGH", "mode": "ENFORCE", "action": "ALERT", "priority": 7,
+        "min_risk": 0, "max_risk": 100, "risk_threshold": 85,
+        "enabled": True, "allow_offline": False,
+    }
+    status, result = api_request(test_server["base_url"], "/api/zta/policies", method="POST", body=payload)
+    assert status == 201 and result["policy"]["priority"] == 7
+    status, result = api_request(test_server["base_url"], f"/api/zta/policies/{result['policy']['policy_id']}", method="PUT", body={"priority": 3})
+    assert status == 200 and result["policy"]["priority"] == 3
+
+
 def test_rbac_enforcement(test_server):
     """Verifies that non-ADMIN roles are rejected with 403 Forbidden on mutations."""
     base_url = test_server["base_url"]

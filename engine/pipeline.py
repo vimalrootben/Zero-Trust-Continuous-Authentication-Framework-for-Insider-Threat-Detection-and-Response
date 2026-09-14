@@ -88,7 +88,8 @@ def process(engine, event, execution_source='AGENT_ONLINE', synced_at=None):
                 policy_context['execution_source'] = 'AGENT_OFFLINE'
             selected = None
             repo.update_service_heartbeat('Policy Engine', activity=True)
-            for policy in sorted(engine.policy_engine.policies, key=lambda p: 0 if p.rule_id else 1):
+            from zta.engine.policy.engine import policy_sort_key
+            for policy in sorted(engine.policy_engine.policies, key=policy_sort_key):
                 decision = engine.policy_engine.evaluate_single_policy(policy, policy_context)
                 eval_id = identifier('pe', alert_id, policy.policy_id)
                 pe = dict(eval_id=eval_id, policy_id=policy.policy_id, policy_code=decision.policy_code,

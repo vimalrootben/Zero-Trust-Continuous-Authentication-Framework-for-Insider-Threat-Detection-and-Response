@@ -433,6 +433,14 @@
       </div>
     </div>
 
+    <div class="form-row">
+      <div class="form-group flex-1">
+        <label for="pb-priority">Selection Priority (0-10000)</label>
+        <input id="pb-priority" type="number" min="0" max="10000" value="1000" required>
+        <span class="subtle">Lower values run first; ties use policy code, then ID.</span>
+      </div>
+    </div>
+
     <!-- Optional Visual Policy Condition -->
     <div class="condition-builder-box">
       <div class="condition-header">
@@ -522,6 +530,7 @@
       <div class="metric-card"><span>Execution Mode</span><strong id="pd-mode">—</strong></div>
       <div class="metric-card"><span>Response Action</span><strong id="pd-action">—</strong></div>
       <div class="metric-card"><span>Risk Threshold Range</span><strong id="pd-risk-range">—</strong></div>
+      <div class="metric-card"><span>Selection Priority</span><strong id="pd-priority">â€”</strong></div>
       <div class="metric-card"><span>Total Policy Triggers</span><strong id="pd-total-triggers">0</strong></div>
     </div>
 

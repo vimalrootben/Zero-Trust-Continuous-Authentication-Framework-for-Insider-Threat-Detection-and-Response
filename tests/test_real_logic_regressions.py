@@ -2,6 +2,7 @@
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 import time
+import sqlite3
 
 import pytest
 
@@ -13,6 +14,7 @@ from zta.engine.response.engine import ZTAResponseEngine
 from zta.agent.commands.command_receiver import AgentCommandReceiver
 from zta.agent.storage.offline_queue import OfflineQueue, OfflineQueueError
 from zta.powershell.ps_executor import PowerShellExecutor, InvalidParameterError
+from zta.storage.database import ZTADatabase
 
 
 @pytest.mark.parametrize('op,actual,value,result', [
@@ -70,6 +72,48 @@ def test_no_policy_matches_or_disabled_policy():
     policy.enabled = True
     assert ZTAPolicyEngine([policy]).evaluate('a', 10, 90) is None
     assert ZTAPolicyEngine([]).evaluate('a', 99, 1) is None
+
+
+def test_overlapping_policies_use_priority_then_stable_identity():
+    policies = [
+        ZTAPolicy('z-id', 'Later priority', 0, 100, 'ISOLATE_ENDPOINT', code='POL-Z', priority=50),
+        ZTAPolicy('b-id', 'Code tie winner', 0, 100, 'LOGOUT_USER', code='POL-B', priority=10),
+        ZTAPolicy('a-id', 'Higher code', 0, 100, 'KILL_PROCESS', code='POL-C', priority=10),
+    ]
+    engine = ZTAPolicyEngine(list(reversed(policies)))
+    assert engine.evaluate('a', 90, 10).action == 'LOGOUT_USER'
+    engine.policies = [policies[2], policies[0], policies[1]]
+    assert engine.evaluate('a', 90, 10).policy_id == 'b-id'
+
+    same_code = [
+        ZTAPolicy('z-id', 'Second ID', 0, 100, 'ALERT', code='POL-SAME', priority=5),
+        ZTAPolicy('a-id', 'First ID', 0, 100, 'MONITOR', code='POL-SAME', priority=5),
+    ]
+    assert ZTAPolicyEngine(same_code).evaluate('a', 50, 50).policy_id == 'a-id'
+
+
+def test_policy_priority_migration_preserves_legacy_selection_order(tmp_path):
+    db_path = tmp_path / 'legacy-policy.db'
+    with sqlite3.connect(db_path) as conn:
+        conn.execute('''CREATE TABLE policies (
+            policy_id TEXT PRIMARY KEY, code TEXT UNIQUE, name TEXT NOT NULL, rule_id TEXT,
+            min_risk INTEGER NOT NULL, max_risk INTEGER NOT NULL, action TEXT NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1
+        )''')
+        conn.executemany(
+            'INSERT INTO policies(policy_id,code,name,rule_id,min_risk,max_risk,action) VALUES(?,?,?,?,?,?,?)',
+            [
+                ('unlinked', 'POL-A', 'Unlinked', None, 0, 100, 'MONITOR'),
+                ('linked-z', 'POL-Z', 'Linked Z', 'RULE-1', 20, 100, 'ALERT'),
+                ('linked-a', 'POL-B', 'Linked A', 'RULE-1', 10, 100, 'LOGOUT_USER'),
+            ],
+        )
+    db = ZTADatabase(db_path, seed_defaults=False)
+    with db.get_connection() as conn:
+        migrated = conn.execute('SELECT policy_id,priority FROM policies ORDER BY priority').fetchall()
+    assert [(row['policy_id'], row['priority']) for row in migrated] == [
+        ('linked-a', 10), ('linked-z', 20), ('unlinked', 30),
+    ]
 
 
 def test_explicit_empty_rules_and_av_presence():
