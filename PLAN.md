@@ -1,5 +1,7 @@
 # Plan
 
+Sequential merge review (2026-09-14): verify each existing branch in ancestry order, preserve both Git histories, and record results in update.txt. Windows deployment verification remains pending.
+
 ## P0 - Establish a clean baseline
 
 - Make the repository and test temp directory writable to the development account.

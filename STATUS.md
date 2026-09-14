@@ -1,5 +1,7 @@
 # Status
 
+Current review (2026-09-14): isolated Linux baseline and first combined branch pass all 113 tests. Historical records below describe the original Windows environment. See update.txt for current evidence.
+
 Updated: 2026-09-13 (Asia/Calcutta)
 
 ## Completed
