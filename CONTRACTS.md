@@ -23,6 +23,7 @@ Optional/defaulted: `user: {name?, domain?, session_id?}`, `process: {name?, pat
 - Read: `/api/zta/{overview,agents,events,rules,policies,incidents,commands,timeline,audit,services,logs}` plus analytics and schema endpoints.
 - Write: rule/policy validate, test, CRUD and toggle; event retry; manual command/action execution.
 - Live feed: WebSocket `/api/zta/ws` (alias `/ws`); browser sessions send `Sec-WebSocket-Protocol: zta-token.<access_token>`.
+- Active streams recheck session validity and stream permission before delivering updates; revoked, expired or disabled identities lose access.
 - Roles: `ADMIN` has all permissions; `SOC_ANALYST` has `read`, `stream`, `response:write`; `AUDITOR` has `read`, `audit:read`, `stream`; `VIEWER` has `read`.
 - Missing/invalid operator credentials return 401; authenticated users lacking permission receive 403. `X-User-Role` is never trusted.
 

@@ -90,3 +90,57 @@ def test_stream_permission_is_role_based(auth_server):
 
     assert b"403" in handshake(viewer)
     assert b"101 Switching Protocols" in handshake(analyst)
+
+
+@pytest.mark.parametrize('revoke', ['logout', 'expire', 'disable'])
+def test_open_stream_stops_after_session_revocation(auth_server, revoke):
+    import time
+    server, base = auth_server
+    token = create_and_login(base, 'revocable.analyst', 'SOC_ANALYST')
+    repo, hub, _, _ = server.runtime
+    with socket.create_connection(('127.0.0.1', server.server_port), timeout=3) as sock:
+        sock.sendall((
+            'GET /api/zta/ws HTTP/1.1\r\nHost: localhost\r\n'
+            'Upgrade: websocket\r\nConnection: Upgrade\r\n'
+            'Sec-WebSocket-Key: MDEyMzQ1Njc4OWFiY2RlZg==\r\n'
+            'Sec-WebSocket-Version: 13\r\n'
+            f'Sec-WebSocket-Protocol: zta-token.{token}\r\n\r\n'
+        ).encode())
+        response = b''
+        while b'\r\n\r\n' not in response:
+            response += sock.recv(4096)
+        assert b'101 Switching Protocols' in response
+        deadline = time.monotonic() + 2
+        while not hub._ws_clients and time.monotonic() < deadline:
+            time.sleep(.01)
+        assert hub._ws_clients
+        hub.broadcast('test.before', {'marker': 'authorized'})
+        assert b'authorized' in sock.recv(4096)
+        if revoke == 'logout':
+            assert request(base, '/api/zta/auth/logout', 'POST', {}, token)[0] == 200
+        else:
+            with repo.db.get_connection() as conn:
+                if revoke == 'expire':
+                    conn.execute("UPDATE operator_sessions SET expires_at='2000-01-01T00:00:00+00:00'")
+                else:
+                    conn.execute("UPDATE operator_users SET enabled=0 WHERE username='revocable.analyst'")
+        hub.broadcast('test.after', {'marker': 'must-not-deliver'})
+        received = b''
+        while True:
+            part = sock.recv(4096)
+            if not part:
+                break
+            received += part
+        assert b'must-not-deliver' not in received
+        assert request(base, '/api/zta/session', token=token)[0] == 401
+
+
+def test_malformed_auth_requests_are_rejected_without_breaking_server(auth_server):
+    _, base = auth_server
+    for body in ([], 'invalid', 12):
+        assert request(base, '/api/zta/auth/login', 'POST', body)[0] == 400
+    create_and_login(base, 'input.viewer', 'VIEWER')
+    for password in (None, {}, 'x' * 257):
+        assert request(base, '/api/zta/auth/login', 'POST',
+                       {'username': 'input.viewer', 'password': password})[0] == 401
+    assert request(base, '/api/zta/session', token='é')[0] == 401

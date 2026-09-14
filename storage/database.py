@@ -817,6 +817,8 @@ class ZTARepository:
         if not rule:
             return None
 
+        if enabled is not None:
+            RuleValidator._flag({"enabled": enabled}, "enabled")
         new_status = (not bool(rule.get("enabled", 1))) if enabled is None else bool(enabled)
         if new_status:
             candidate = dict(rule)
