@@ -2,6 +2,8 @@
 
 Updated: 2026-09-14 (Asia/Calcutta)
 
+Current review (2026-09-14): regex branch passes 142 tests after propagating evaluation errors through nested logic. Historical records below describe the original Windows environment. See update.txt for current evidence.
+
 ## Completed
 
 - Created `.venv` with declared dependencies.

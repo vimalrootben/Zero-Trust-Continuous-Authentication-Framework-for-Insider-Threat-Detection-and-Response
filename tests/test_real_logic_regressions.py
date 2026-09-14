@@ -168,3 +168,25 @@ def test_event_retry_preserves_original_evidence(tmp_path):
     rows = repository.get_recent_events()
     assert len(rows) == 1
     assert rows[0]['raw_event_json'] == '{"original": true}'
+
+
+@pytest.mark.parametrize("wrapper", [
+    lambda leaf: {"not": leaf},
+    lambda leaf: {"not": {"not": leaf}},
+    lambda leaf: {"all": [{"field": "y", "op": "exists"}, {"not": leaf}]},
+    lambda leaf: {"any": [{"field": "y", "op": "exists"}, {"not": leaf}]},
+])
+def test_regex_errors_cannot_become_matches_in_nested_logic(wrapper):
+    leaf = {"field": "x", "op": "regex", "value": "a+"}
+    trace = ConditionEvaluator().explain(wrapper(leaf), {"x": "a" * 4097, "y": True})
+    assert trace["result"] is False
+    assert trace["evaluation_error"] == "REGEX_INPUT_LIMIT"
+
+
+def test_regex_timeout_propagates_through_not(monkeypatch):
+    def timeout(*args, **kwargs):
+        raise TimeoutError()
+    monkeypatch.setattr("zta.engine.events.conditions.regex.search", timeout)
+    trace = ConditionEvaluator().explain({"not": {"field": "x", "op": "regex", "value": "a+"}}, {"x": "abc"})
+    assert trace["result"] is False
+    assert trace["evaluation_error"] == "REGEX_TIMEOUT"

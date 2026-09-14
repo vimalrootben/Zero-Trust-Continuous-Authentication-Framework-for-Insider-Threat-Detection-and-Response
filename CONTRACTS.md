@@ -23,6 +23,7 @@ Optional/defaulted: `user: {name?, domain?, session_id?}`, `process: {name?, pat
 - Read: `/api/zta/{overview,agents,events,rules,policies,incidents,commands,timeline,audit,services,logs}` plus analytics and schema endpoints.
 - Write: rule/policy validate, test, CRUD and toggle; event retry; manual command/action execution.
 - Live feed: WebSocket `/api/zta/ws` (alias `/ws`); browser sessions send `Sec-WebSocket-Protocol: zta-token.<access_token>`.
+- Active streams recheck session validity and stream permission before delivering updates; revoked, expired or disabled identities lose access.
 - Roles: `ADMIN` has all permissions; `SOC_ANALYST` has `read`, `stream`, `response:write`; `AUDITOR` has `read`, `audit:read`, `stream`; `VIEWER` has `read`.
 - Missing/invalid operator credentials return 401; authenticated users lacking permission receive 403. `X-User-Role` is never trusted.
 
@@ -49,3 +50,5 @@ Optional/defaulted: `user: {name?, domain?, session_id?}`, `process: {name?, pat
 - Agent sync field: `SYNCING | IDLE`; manager-visible status includes `ACTIVE | SYNCING | DISCONNECTED | ISOLATED`.
 - Command lifecycle: `PENDING/QUEUED -> DISPATCHED -> EXECUTING -> SUCCESS | FAILED`; executor internals may also report `RUNNING | TIMEOUT | REJECTED`, and safe actions may use `PREVIEW` or `NOT_EXECUTED`.
 - Execution source: `AGENT_ONLINE | AGENT_OFFLINE`; policy modes: `ALERT_ONLY | ENFORCE`.
+
+Regex evaluation contract: input-limit and timeout errors propagate to parent AND/OR/NOT traces. A condition tree with an evaluation error does not match.

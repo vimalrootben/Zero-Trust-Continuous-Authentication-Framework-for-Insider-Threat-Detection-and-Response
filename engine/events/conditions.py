@@ -101,8 +101,14 @@ class ConditionEvaluator:
                 children = [self._evaluate(node, data) for node in nodes]
                 values = [child["result"] for child in children]
                 result = all(values) if group == "all" else any(values) if group == "any" else not values[0]
-                return {"logic": {"all": "AND", "any": "OR", "not": "NOT"}[group],
-                        "children": children, "result": result}
+                trace = {"logic": {"all": "AND", "any": "OR", "not": "NOT"}[group],
+                         "children": children, "result": result}
+                errors = [child["evaluation_error"] for child in children if child.get("evaluation_error")]
+                if errors:
+                    # An incomplete evaluation is never evidence for a match,
+                    # particularly when NOT would invert a failed regex result.
+                    trace.update(result=False, evaluation_error=errors[0])
+                return trace
         actual: Any = data
         present = True
         for segment in condition["field"].split("."):

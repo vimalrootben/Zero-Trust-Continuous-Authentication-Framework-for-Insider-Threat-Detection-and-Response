@@ -509,3 +509,17 @@ def test_end_to_end_runtime_rule_policy_enforcement(test_server):
     audit_events = [a["event_type"] for a in audit_resp["audit_logs"]]
     assert "RULE_CREATED" in audit_events
     assert "POLICY_CREATED" in audit_events
+
+
+def test_rule_toggle_rejects_truthy_non_boolean_values(test_server):
+    base = test_server["base_url"]
+    status, created = api_request(base, "/api/zta/rules", method="POST",
+                                  body={**_valid_rule("STRICT-TOGGLE"), "enabled": False})
+    assert status == 201
+    rule_id = created["rule"]["rule_id"]
+    for method in ("POST", "PATCH"):
+        for value in ("false", "true", 2, [], {}):
+            status, result = api_request(base, f"/api/zta/rules/{rule_id}/toggle",
+                                         method=method, body={"enabled": value})
+            assert status == 400, (method, value, result)
+            assert test_server["server"].runtime[0].get_rule_by_id(rule_id)["enabled"] == 0

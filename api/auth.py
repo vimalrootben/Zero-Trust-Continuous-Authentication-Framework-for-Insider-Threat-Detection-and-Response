@@ -35,6 +35,8 @@ def _password_hash(password, salt=None):
 
 def _verify_password(password, encoded):
     try:
+        if not isinstance(password, str) or not 12 <= len(password) <= 256:
+            return False
         algorithm, iterations, salt, expected = encoded.split("$", 3)
         if algorithm != "pbkdf2_sha256":
             return False
@@ -50,7 +52,7 @@ class OperatorAuth:
 
     def identity(self, token):
         legacy = os.environ.get("ZTA_ADMIN_TOKEN", "")
-        if legacy and token and hmac.compare_digest(token, legacy):
+        if legacy and token and hmac.compare_digest(token.encode("utf-8"), legacy.encode("utf-8")):
             return {"user_id": "legacy-admin", "username": "legacy-admin", "role": "ADMIN", "permissions": sorted(ROLE_PERMISSIONS["ADMIN"]), "legacy": True}
         if not token:
             return None
