@@ -1,11 +1,16 @@
 # Plan
 
+## Completed - Safe rule activation
+
+- Enforced rule field types, enums, risk bounds, operand types, and condition-tree complexity before create, update, or activation.
+- Acceptance: invalid rules are rejected without persistence; valid seeded/existing workflows pass all 129 tests.
+
 ## Completed - Authenticated permission access
 
 - Added operator creation, password login, expiring sessions, role permissions, protected reads/writes/streams, and authenticated dashboard session flow.
 - Acceptance: unauthorized access returns 401; insufficient permissions return 403; permitted workflows and unchanged agent authentication pass the 116-test suite.
 
-Sequential merge review (2026-09-14): verify each existing branch in ancestry order, preserve both Git histories, and record results in update.txt. Permissions regression fixes complete; analytics time-range correction and Windows deployment verification remain pending.
+Sequential merge review (2026-09-14): verify each existing branch in ancestry order, preserve both Git histories, and record results in update.txt. Permissions and rule-toggle regression fixes complete; analytics time-range correction and Windows deployment verification remain pending.
 
 ## P0 - Establish a clean baseline
 

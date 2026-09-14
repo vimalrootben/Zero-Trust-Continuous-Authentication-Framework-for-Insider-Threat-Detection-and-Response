@@ -18,3 +18,8 @@ Review and sequential merge verification — 2026-09-14
 - Intermediate fix run: 110 passed, 10 failed because overly broad validation rejected bulk arrays; corrected before publication. Final: 120 passed in 31.33s. JavaScript syntax, Python compilation and diff checks passed.
 - Resolved plan/status documentation conflicts retaining feature records and current review evidence.
 - Remaining: user reset/disable administration UI is not implemented; TLS termination/client-certificate deployment is external. Analytics range handling found during review is queued for the final integration stage.
+
+3. fix/rule-activation-validation -> main
+- Reviewed complete rule validation on creation, updates and activation, supported enums/types, AND/OR/NOT depth and width limits, and rejected-update persistence.
+- Before fixes: 133 tests passed. Fixed toggle coercion that enabled a rule when passed the string "false"; toggles now accept only booleans or integer 0/1 (or omitted/null to invert).
+- Added API regression covering POST/PATCH and malformed toggle values; final suite: 134 passed in 38.55s. JavaScript syntax and diff checks passed. No schema migration added.

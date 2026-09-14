@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from zta.engine.events.conditions import RuleValidator
 from zta.engine.events.models import ZTAAgent, ZTAEvent, ZTAMitre, ZTAProcess, ZTAUser, ZTAWazuhRule
 from zta.engine.risk.engine import RiskEvent
 from zta.engine.trust.engine import TrustState
@@ -679,10 +680,19 @@ class ZTARepository:
 
     def create_rule(self, rule_data: Dict[str, Any], actor: str = "admin", role: str = "admin") -> Dict[str, Any]:
         """Creates a new real detection rule in the database with audit trail."""
-        code = str(rule_data.get("code", "")).strip()
-        name = str(rule_data.get("name", "")).strip()
-        if not code or not name:
-            raise ValueError("Rule code and name are required")
+        candidate = dict(rule_data) if isinstance(rule_data, dict) else rule_data
+        if isinstance(candidate, dict):
+            candidate.setdefault("category", "General")
+            candidate.setdefault("severity", "MEDIUM")
+            candidate.setdefault("risk_delta", 15)
+            candidate.setdefault("response_action", "ALERT")
+            candidate.setdefault("logic_type", "CONDITION_TREE")
+            candidate.setdefault("enabled", True)
+            candidate.setdefault("allow_offline", False)
+        RuleValidator().validate(candidate)
+        rule_data = candidate
+        code = rule_data["code"].strip()
+        name = rule_data["name"].strip()
 
         # Ensure code uniqueness
         existing = self.get_rule_by_id(code)
@@ -694,8 +704,9 @@ class ZTARepository:
         severity = rule_data.get("severity", "MEDIUM")
         mitre_tactic = rule_data.get("mitre_tactic")
         mitre_technique_id = rule_data.get("mitre_technique_id")
-        risk_delta = int(rule_data.get("risk_delta", 15))
-        cond = rule_data.get("condition") or rule_data.get("condition_json") or {}
+        risk_delta = rule_data["risk_delta"]
+        cond = rule_data.get("condition")
+        if cond is None: cond = json.loads(rule_data["condition_json"])
         cond_json = json.dumps(cond) if not isinstance(cond, str) else cond
         response_action = rule_data.get("response_action", "ALERT")
         logic_type = rule_data.get("logic_type", "CONDITION_TREE")
@@ -747,12 +758,19 @@ class ZTARepository:
         if not rule:
             return None
 
+        if not isinstance(update_data, dict):
+            raise ValueError("Rule update must be an object")
+        candidate = {**rule, **update_data}
+        if "condition" not in update_data:
+            candidate["condition"] = rule["condition"]
+        RuleValidator().validate(candidate)
+
         name = update_data.get("name", rule["name"])
         category = update_data.get("category", rule["category"])
         severity = update_data.get("severity", rule["severity"])
         mitre_tactic = update_data.get("mitre_tactic", rule.get("mitre_tactic"))
         mitre_technique_id = update_data.get("mitre_technique_id", rule.get("mitre_technique_id"))
-        risk_delta = int(update_data.get("risk_delta", rule.get("risk_delta", 15)))
+        risk_delta = update_data.get("risk_delta", rule.get("risk_delta", 15))
         response_action = update_data.get("response_action", rule.get("response_action", "ALERT"))
         enabled = 1 if update_data.get("enabled", rule.get("enabled", 1)) else 0
         allow_offline = 1 if update_data.get("allow_offline", rule.get("allow_offline", 0)) else 0
@@ -799,7 +817,13 @@ class ZTARepository:
         if not rule:
             return None
 
+        if enabled is not None:
+            RuleValidator._flag({"enabled": enabled}, "enabled")
         new_status = (not bool(rule.get("enabled", 1))) if enabled is None else bool(enabled)
+        if new_status:
+            candidate = dict(rule)
+            candidate["enabled"] = True
+            RuleValidator().validate(candidate)
         val = 1 if new_status else 0
 
         with self.db.get_connection() as conn:
