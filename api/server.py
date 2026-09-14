@@ -8,10 +8,11 @@ import logging
 import os
 import struct
 import select
+import secrets
 import threading
 import time
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import HTTPServer, SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
@@ -235,6 +236,8 @@ class ZTABackgroundEngine:
 
 
 class ZTAApiHandler(SimpleHTTPRequestHandler):
+    _db_clear_tokens = {}
+    _db_clear_lock = threading.Lock()
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(self.dashboard_dir), **kwargs)
 
@@ -599,6 +602,12 @@ class ZTAApiHandler(SimpleHTTPRequestHandler):
             self._send_json({"policy_evaluations": self.repo.get_policy_evaluations(limit=limit)})
         elif path in ("/api/zta/incidents", "/api/zta/alerts"):
             self._send_json({"incidents": self.repo.get_incidents()})
+        elif path == "/api/zta/listening-ports":
+            agent_id = parse_qs(url.query).get("agent_id", [None])[0]
+            self._send_json({"listening_ports": self.repo.get_listening_ports(agent_id)})
+        elif path == "/api/zta/scripts":
+            from zta.agent.execution.validators import ALLOWED_SCRIPT_IDS
+            self._send_json({"scripts": sorted(ALLOWED_SCRIPT_IDS)})
         elif path.startswith("/api/zta/incidents/") or path.startswith("/api/zta/alerts/"):
             incident_id = path.split("/")[-1]
             incident = self.repo.get_incident_by_id(incident_id)
@@ -692,7 +701,7 @@ class ZTAApiHandler(SimpleHTTPRequestHandler):
                 return
 
             if path.startswith("/api/zta/"):
-                if path.startswith(("/api/zta/actions", "/api/zta/commands")) or (path.startswith("/api/zta/events/") and path.endswith("/retry")):
+                if path.startswith(("/api/zta/actions", "/api/zta/commands", "/api/zta/scripts/execute")) or (path.startswith("/api/zta/events/") and path.endswith("/retry")):
                     permission = "response:write"
                 elif path.startswith(("/api/zta/rules", "/api/zta/policies")):
                     permission = "config:write"
@@ -723,6 +732,10 @@ class ZTAApiHandler(SimpleHTTPRequestHandler):
                 self.hub.begin()
                 before = next((a for a in self.repo.get_agents() if a["id"] == payload["agent_id"]), None)
                 self.repo.save_heartbeat(payload)
+                ports = payload.get("listening_ports", [])
+                if not isinstance(ports, list) or any(not isinstance(port, dict) for port in ports):
+                    raise ValueError("listening_ports must be a list of objects")
+                self.repo.save_listening_ports(payload["agent_id"], ports)
                 self.repo.update_service_heartbeat("Heartbeat Monitor", activity=True)
                 with self.repo.db.get_connection() as conn:
                     conn.execute("UPDATE agents SET agent_version=?,collector_error=? WHERE id=?", (payload.get("agent_version"), payload.get("collector_error"), payload["agent_id"]))
@@ -744,7 +757,6 @@ class ZTAApiHandler(SimpleHTTPRequestHandler):
                             self.hub.broadcast('command.dispatched', {'command_id': cmd['command_id'], 'agent_id': payload['agent_id']})
                         cmd.update(status='DISPATCHED', dispatched_at=cmd['dispatched_at'] or now)
                         pending.append(sign(cmd, secret))
-                from datetime import timedelta
                 rules, policies = self.repo.get_rules(), self.repo.get_policies()
                 # Version only definitions, excluding counters and evaluation history.
                 volatile = {'last_evaluated','last_matched','last_triggered','total_matches','total_triggers','recent_matches','linked_policies','recent_evaluations'}
@@ -836,7 +848,6 @@ class ZTAApiHandler(SimpleHTTPRequestHandler):
                 preview = self.command_receiver.process_command({"command_id": "validate", "action": action, "params": params}, dry_run=True)
                 if preview.status not in ("PREVIEW", "SUCCESS", "REJECTED") and preview.error:
                     raise ValueError(preview.error)
-                from datetime import timedelta
                 command_id = f"cmd-manual-{uuid4().hex[:8]}"
                 now_iso = datetime.now(timezone.utc).isoformat()
                 self.repo.save_command({
@@ -866,6 +877,74 @@ class ZTAApiHandler(SimpleHTTPRequestHandler):
                     "agent_id": agent_id,
                     "message": f"Command {action} queued for dispatch.",
                 }, 201)
+
+            elif path == "/api/zta/scripts/execute":
+                if not self._require_permission("response:write"): return
+                from zta.agent.execution.validators import ScriptValidationError, validate_script_request
+                agent_id = str(payload.get("agent_id") or "")
+                script_id = str(payload.get("script_id") or "")
+                parameters = payload.get("parameters", {})
+                if not agent_id:
+                    raise ValueError("agent_id is required")
+                try:
+                    validate_script_request(script_id, parameters)
+                except ScriptValidationError as exc:
+                    raise ValueError(str(exc)) from exc
+                if not self._agent_secret(agent_id):
+                    raise ValueError("No credential configured for target agent")
+                correlation_id = str(parameters.get("correlation_id") or f"manual-{uuid4().hex}")
+                parameters = {**parameters, "correlation_id": correlation_id}
+                command_id = f"cmd-manual-{uuid4().hex}"
+                now_iso = datetime.now(timezone.utc).isoformat()
+                self.repo.save_command({
+                    "command_id": command_id, "agent_id": agent_id, "action_type": "DEMO_SCRIPT",
+                    "params": {"script_id": script_id, **parameters}, "status": "QUEUED",
+                    "executor": "ALLOWLISTED_SCRIPT", "execution_source": "MANAGER",
+                    "created_at": now_iso, "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
+                })
+                self.repo.save_audit("MANUAL_SCRIPT_QUEUED", f"Allowlisted script {script_id} queued",
+                                     agent_id=agent_id, user=self._actor,
+                                     details={"command_id": command_id, "script_id": script_id, "correlation_id": correlation_id})
+                self.hub.broadcast("command.created", {"command_id": command_id, "agent_id": agent_id, "action": "DEMO_SCRIPT"})
+                self._send_json({"status": "QUEUED", "command_id": command_id, "correlation_id": correlation_id}, 201)
+
+            elif path == "/api/zta/admin/database-clear/request":
+                if self._role != "ADMIN":
+                    self._send_json({"error": "Admin role required"}, 403)
+                    return
+                token = secrets.token_urlsafe(32)
+                digest = hashlib.sha256(token.encode()).hexdigest()
+                expires_at = datetime.now(timezone.utc) + timedelta(minutes=2)
+                with self._db_clear_lock:
+                    self._db_clear_tokens[digest] = {"actor": self._actor, "expires_at": expires_at, "used": False}
+                self._send_json({"confirmation_token": token, "expires_at": expires_at.isoformat()})
+
+            elif path == "/api/zta/admin/database-clear":
+                if self._role != "ADMIN":
+                    self._send_json({"error": "Admin role required"}, 403)
+                    return
+                supplied = str(payload.get("confirmation_token") or "")
+                digest = hashlib.sha256(supplied.encode()).hexdigest()
+                with self._db_clear_lock:
+                    record = self._db_clear_tokens.get(digest)
+                    valid = bool(record and not record["used"] and record["actor"] == self._actor
+                                 and record["expires_at"] > datetime.now(timezone.utc))
+                    if valid:
+                        record["used"] = True
+                if not valid:
+                    self._send_json({"error": "Invalid, expired, or already-used confirmation token"}, 400)
+                    return
+                tables = ("rule_matches", "rule_evaluations", "policy_evaluations", "commands", "risk_history",
+                          "incidents", "zta_events", "agent_logs", "sync_receipts", "sync_history",
+                          "agent_listening_ports", "agents", "audit_log")
+                with self.repo.db.transaction() as conn:
+                    counts = {table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] for table in tables}
+                    for table in tables:
+                        conn.execute(f"DELETE FROM {table}")
+                self.repo.save_audit("DATABASE_CLEARED", "Operational database records cleared", user=self._actor,
+                                     details={"deleted_records": counts})
+                self.hub.broadcast("database.cleared", {"actor": self._actor})
+                self._send_json({"status": "CLEARED", "deleted_records": counts})
 
             elif path in ("/api/v1/agents/logs", "/agent/logs"):
                 self._authenticate_agent(payload.get('agent_id'))

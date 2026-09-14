@@ -78,3 +78,29 @@ def test_dashboard_assets_and_working_directory(tmp_path):
             assert False, 'Python source should not be exposed'
         except urllib.error.HTTPError as exc:
             assert exc.code == 404
+
+
+def test_live_ports_manual_allowlisted_execution_and_admin_clear(tmp_path):
+    with running(tmp_path / 'api.db') as base:
+        heartbeat = {'agent_id':'abc', 'hostname':'Laptop', 'listening_ports':[
+            {'port':443, 'protocol':'TCP', 'local_address':'127.0.0.1', 'pid':42,
+             'process_name':'service', 'state':'Listen', 'last_observed':'2026-09-14T10:00:00Z'}]}
+        assert request(base, '/api/v1/agents/heartbeat', heartbeat)[0] == 200
+        ports = request(base, '/api/zta/listening-ports')[1]['listening_ports']
+        assert ports[0]['port'] == 443 and ports[0]['process_name'] == 'service'
+
+        status, queued = request(base, '/api/zta/scripts/execute', {
+            'agent_id':'abc', 'script_id':'DEMO_LOG_PUSH', 'parameters':{'message':'approved test'}})
+        assert status == 201 and queued['status'] == 'QUEUED'
+        commands = request(base, '/api/zta/commands')[1]['commands']
+        assert commands[0]['executor'] == 'ALLOWLISTED_SCRIPT'
+        assert request(base, '/api/zta/scripts/execute', {
+            'agent_id':'abc', 'script_id':'NOT_ALLOWLISTED', 'parameters':{}})[0] == 400
+
+        status, challenge = request(base, '/api/zta/admin/database-clear/request', {})
+        assert status == 200 and len(challenge['confirmation_token']) >= 32
+        token = challenge['confirmation_token']
+        assert request(base, '/api/zta/admin/database-clear', {'confirmation_token':token})[0] == 200
+        assert request(base, '/api/zta/admin/database-clear', {'confirmation_token':token})[0] == 400
+        audit = request(base, '/api/zta/audit')[1]['audit_logs']
+        assert audit[0]['event_type'] == 'DATABASE_CLEARED'

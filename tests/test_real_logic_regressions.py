@@ -180,25 +180,21 @@ def test_logout_query_failure_is_not_success():
         run.assert_not_called()
 
 
-def test_network_isolation_requires_verified_state_marker():
+def test_network_isolation_is_unavailable_without_subprocess_execution():
     with patch('zta.powershell.ps_executor.subprocess.run') as run:
-        run.return_value = MagicMock(returncode=0, stdout='ISOLATION_VERIFIED manager=10.0.0.5', stderr='')
         result = PowerShellExecutor().execute_template('NETWORK_ISOLATION', {'Action': 'ISOLATE', 'ManagerIP': '10.0.0.5'})
-        assert result.success
-        assert result.verification == 'ISOLATION_VERIFIED'
-
-        run.return_value = MagicMock(returncode=0, stdout='request submitted', stderr='')
-        result = PowerShellExecutor().execute_template('NETWORK_ISOLATION')
         assert not result.success
-        assert 'verification' in result.error
+        assert result.verification == 'UNAVAILABLE'
+        assert 'unavailable' in result.error.lower()
+        run.assert_not_called()
 
 
-def test_network_unisolate_requires_rollback_verification_marker():
+def test_network_unisolate_is_also_unavailable():
     with patch('zta.powershell.ps_executor.subprocess.run') as run:
-        run.return_value = MagicMock(returncode=0, stdout='UNISOLATION_VERIFIED ALREADY_UNISOLATED', stderr='')
         result = PowerShellExecutor().execute_template('NETWORK_ISOLATION', {'Action': 'UNISOLATE', 'ManagerIP': '10.0.0.5'})
-        assert result.success
-        assert result.verification == 'UNISOLATION_VERIFIED'
+        assert not result.success
+        assert result.verification == 'UNAVAILABLE'
+        run.assert_not_called()
 
 
 @pytest.mark.parametrize('accepted,remaining', [(['1'], ['2']), (None, ['1', '2']), (['unrelated'], ['1', '2'])])

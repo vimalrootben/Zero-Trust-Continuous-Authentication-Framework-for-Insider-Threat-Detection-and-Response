@@ -33,4 +33,7 @@
 - Response execution is allowlisted, parameter-validated, journaled, and verification-based. `script_executor.py`, `script_registry.py`, and `validators.py` are the canonical script path; `executor.py` is compatibility imports only.
 - Allowlisted scripts have no environment/demo-mode bypass or gate. Authorization belongs to the existing signed command and signed cached-policy paths.
 - Offline actions are generated only by enabled cached rules and enabled `ENFORCE` policies that both allow offline operation; the signed cache and its expiry are revalidated before execution.
-- Network isolation snapshots firewall profiles and enabled outbound allow rules, disables prior allows, preserves manager/DNS reachability explicitly, verifies containment, behaves idempotently, and restores the snapshot on unisolate or failed isolation.
+- `NETWORK_ISOLATION` remains in the existing allowlist for compatibility but is fail-closed and reports `UNAVAILABLE`; this scope does not implement or simulate containment.
+- Manual script requests enter the same manager command table, signature dispatch, agent receiver, allowlist validation, execution verification, and result reporting path as policy-created commands.
+- Agent heartbeats carry the collector's live listening-port snapshot, which the manager atomically persists for dashboard/API reads.
+- Continuing identical detections share one active incident fingerprint while every event, rule evaluation, rule match, risk record, and audit record remains durable.

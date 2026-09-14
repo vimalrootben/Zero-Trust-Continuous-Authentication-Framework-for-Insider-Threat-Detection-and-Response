@@ -5,7 +5,8 @@
 - Removed the environment-mode gate and consolidated script execution without changing either allowlist.
 - Connected signed online commands and signed cached-policy offline decisions to one receiver/executor/journal path.
 - Connected process, file, network connection, and listening-port telemetry to rules, risk, policy, execution, and acknowledged reconnect sync.
-- Implemented verified, reversible, manager-preserving network isolation and end-to-end regression coverage.
+- Retired network isolation execution for this scope; requests now fail closed with a clear `UNAVAILABLE` verification result.
+- Added the existing-flow manual script control, live port telemetry/dashboard, narrow self-PID exclusion, active-alert coalescing, and token-confirmed ADMIN database clearing.
 - Acceptance: manager and offline commands execute at most once after all existing authorization checks; verified durable evidence synchronizes only after acknowledgement; full regressions pass.
 
 ## Completed - Deterministic policy selection

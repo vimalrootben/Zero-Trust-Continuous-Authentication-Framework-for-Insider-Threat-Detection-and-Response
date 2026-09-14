@@ -3,7 +3,7 @@
 const $ = id => document.getElementById(id);
 const state = {
   events: [], agents: [], incidents: [], rules: [], policies: [],
-  timeline: [], auditLogs: [], services: [], overview: {},
+  timeline: [], auditLogs: [], services: [], overview: {}, listeningPorts: [], commands: [], scripts: [],
   schema: null,
   view: 'dashboard', rulesPoliciesSubtab: 'rules',
   page: 0, rows: [], loading: false, ws: null,
@@ -38,6 +38,7 @@ function unlockDashboard(identity) {
   state.permissions = identity.permissions || [];
   $('user-role').value = state.role;
   $('create-user').hidden = !state.permissions.includes('users:manage');
+  $('clear-database').hidden = state.role !== 'ADMIN';
   $('change-password').hidden = Boolean(identity.legacy);
   $('sign-out').hidden = false;
   $('login-page').hidden = true;
@@ -1103,6 +1104,27 @@ function charts(events) {
 // ----------------------------------------------------------------------
 // RENDER VIEWS & TABLES
 // ----------------------------------------------------------------------
+function renderLiveAgentControls() {
+  const agent = $('manual-agent');
+  const selectedAgent = agent.value;
+  agent.innerHTML = state.agents.map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.name)} (${escapeHTML(item.id)})</option>`).join('');
+  if (selectedAgent && state.agents.some(item => item.id === selectedAgent)) agent.value = selectedAgent;
+  const script = $('manual-script');
+  const selectedScript = script.value;
+  script.innerHTML = state.scripts.map(item => `<option value="${escapeHTML(item)}">${escapeHTML(item)}</option>`).join('');
+  if (selectedScript && state.scripts.includes(selectedScript)) script.value = selectedScript;
+  $('ports-body').innerHTML = state.listeningPorts.length ? state.listeningPorts.map(port => `<tr>
+    <td>${escapeHTML(port.agent_id)}</td><td>${escapeHTML(port.port)}</td><td>${escapeHTML(port.protocol)}</td>
+    <td>${escapeHTML(port.local_address)}</td><td>${escapeHTML(port.pid)}</td><td>${escapeHTML(port.process_name || '—')}</td>
+    <td>${escapeHTML(port.state || 'LISTEN')}</td><td>${date(port.last_observed).toLocaleString()}</td></tr>`).join('')
+    : '<tr><td colspan="8">No live listener snapshot has been received.</td></tr>';
+  $('commands-body').innerHTML = state.commands.length ? state.commands.slice(0, 10).map(command => `<tr>
+    <td>${escapeHTML(command.command_id)}</td><td>${escapeHTML(command.agent_id)}</td><td>${escapeHTML(command.action_type)}</td>
+    <td><span class="badge ${escapeHTML(command.status)}">${escapeHTML(command.status)}</span></td>
+    <td>${escapeHTML(command.verification || 'PENDING')}</td><td>${escapeHTML(command.error_message || '—')}</td></tr>`).join('')
+    : '<tr><td colspan="6">No execution reports recorded.</td></tr>';
+}
+
 function render() {
   const events = filteredEvents();
   text('total', fmt(state.overview.total_events || events.length));
@@ -1111,6 +1133,7 @@ function render() {
   text('policy-triggers', fmt(state.overview.policy_triggers !== undefined ? state.overview.policy_triggers : 0));
 
   charts(events);
+  renderLiveAgentControls();
   $('dashboard-view').hidden = state.view !== 'dashboard';
   $('rules-policies-header').hidden = state.view !== 'rules_policies';
 
@@ -1166,7 +1189,7 @@ function render() {
     }
   } else if (state.view === 'incidents') {
     text('table-title', 'Security Alerts & Incidents');
-    headings = ['Alert ID', 'Created Time', 'Agent', 'Severity', 'Risk Score', 'Trigger Reason', 'Policy Action', 'Status'];
+    headings = ['Alert ID', 'First Seen', 'Last Seen', 'Occurrences', 'Agent', 'Severity', 'Risk Score', 'Trigger Reason', 'Policy Action', 'Status'];
     state.rows = state.incidents.filter(i => JSON.stringify(i).toLowerCase().includes(query) && (!$('severity').value || i.severity === $('severity').value));
   } else if (state.view === 'timeline') {
     text('table-title', 'Unified Security Timeline');
@@ -1257,13 +1280,15 @@ function render() {
       const demoBadge = isDemo ? ' <span class="badge" style="background:#4b5563;color:#f3f4f6;font-size:10px;">DEMO/TEST</span>' : '';
       cells = [
         `<button class="row-code-btn" data-row="${index}">› ${escapeHTML(row.incident_id)}</button>${demoBadge}`,
-        date(row.created_at).toLocaleString(),
+        date(row.first_seen || row.created_at).toLocaleString(),
+        date(row.last_seen || row.updated_at).toLocaleString(),
+        fmt(row.occurrence_count || 1),
         escapeHTML(row.agent_name || row.agent_id),
         `<span class="badge ${row.severity}">${row.severity}</span>`,
         `${row.risk_score || 0} / 100`,
         escapeHTML(row.trigger_reason),
         `${escapeHTML(row.action_taken || 'MONITOR')} (${escapeHTML(row.response_status || 'PENDING')})`,
-        `<span class="badge ${row.status}">${row.status}</span>`
+        `<span class="badge ${row.status}">● ${['RESOLVED','CLOSED','FALSE_POSITIVE'].includes(row.status) ? row.status : 'ACTIVE / NOT RESOLVED'}</span>`
       ];
     } else if (state.view === 'timeline') {
       cells = [
@@ -1385,7 +1410,7 @@ async function refresh() {
     await fetchSchema();
     const endpoints = [
       'events?limit=10000', 'agents', 'incidents', 'overview',
-      'rules', 'policies', 'timeline', 'background-services'
+      'rules', 'policies', 'timeline', 'background-services', 'listening-ports', 'commands', 'scripts'
     ];
     if (state.permissions.includes('audit:read')) endpoints.push('audit');
     const results = await Promise.all(endpoints.map(async ep => {
@@ -1405,7 +1430,10 @@ async function refresh() {
     state.policies = results[5].policies || [];
     state.timeline = results[6].timeline || [];
     state.services = results[7].background_services || [];
-    state.auditLogs = state.permissions.includes('audit:read') ? (results[8].audit_logs || []) : [];
+    state.listeningPorts = results[8].listening_ports || [];
+    state.commands = results[9].commands || [];
+    state.scripts = results[10].scripts || [];
+    state.auditLogs = state.permissions.includes('audit:read') ? (results[11].audit_logs || []) : [];
 
     $('notice').hidden = (state.overview.total_events || 0) <= state.events.length;
     if (!$('notice').hidden) {
@@ -1654,6 +1682,39 @@ $('clear').onclick = () => {
 };
 $('previous').onclick = () => { state.page--; render(); };
 $('next').onclick = () => { state.page++; render(); };
+
+$('manual-script-form').onsubmit = async event => {
+  event.preventDefault();
+  try {
+    const parameters = JSON.parse($('manual-parameters').value || '{}');
+    const response = await apiFetch('/api/zta/scripts/execute', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({agent_id: $('manual-agent').value, script_id: $('manual-script').value, parameters})
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+    text('manual-execution-status', `Queued ${result.command_id}; awaiting signed agent execution and verification.`);
+    showToast('Allowlisted script queued for the agent.', 'success');
+    await refresh();
+  } catch (error) {
+    text('manual-execution-status', `Request failed: ${error.message}`);
+    showToast(error.message, 'error');
+  }
+};
+
+$('clear-database').onclick = async () => {
+  if (state.role !== 'ADMIN' || !confirm('Request a short-lived token to clear operational database records?')) return;
+  const request = await apiFetch('/api/zta/admin/database-clear/request', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
+  const challenge = await request.json();
+  if (!request.ok) { showToast(challenge.error || 'Token request failed', 'error'); return; }
+  const supplied = prompt('Enter the single-use confirmation token exactly as shown:', challenge.confirmation_token);
+  if (!supplied) return;
+  const response = await apiFetch('/api/zta/admin/database-clear', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({confirmation_token:supplied})});
+  const result = await response.json();
+  if (!response.ok) { showToast(result.error || 'Database clear rejected', 'error'); return; }
+  showToast('Operational database cleared and audited.', 'success');
+  await refresh();
+};
 
 $('report').onclick = () => {
   const report = {

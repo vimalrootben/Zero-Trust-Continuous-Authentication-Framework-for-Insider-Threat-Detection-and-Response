@@ -60,7 +60,18 @@ def process(engine, event, execution_source='AGENT_ONLINE', synced_at=None):
             if not trace['result']:
                 continue
             match_id = identifier('rm', event.event_id, rule['rule_id'])
-            alert_id = identifier('alt', event.event_id, rule['rule_id'])
+            fingerprint_fields = {
+                'agent_id': agent_id, 'rule_id': rule['rule_id'], 'event_type': event.event_type,
+                'user': event_data.get('user'), 'process': event_data.get('process'),
+                'source_ip': event_data.get('source_ip'), 'destination_ip': event_data.get('destination_ip'),
+                'source_port': event_data.get('source_port'), 'destination_port': event_data.get('destination_port'),
+            }
+            alert_fingerprint = hashlib.sha256(json.dumps(fingerprint_fields, sort_keys=True, default=str).encode()).hexdigest()
+            existing_incident = conn.execute(
+                "SELECT * FROM incidents WHERE alert_fingerprint=? AND status NOT IN ('RESOLVED','CLOSED','FALSE_POSITIVE') ORDER BY last_seen DESC LIMIT 1",
+                (alert_fingerprint,),
+            ).fetchone()
+            alert_id = existing_incident['incident_id'] if existing_incident else identifier('alt', event.event_id, rule['rule_id'])
             match = dict(match_id=match_id, rule_id=rule['rule_id'], rule_code=rule['code'], rule_name=rule['name'],
                          rule_version=rule.get('current_version', 1),
                          agent_id=agent_id, agent_name=event.agent.name, event_id=event.event_id,
@@ -73,14 +84,19 @@ def process(engine, event, execution_source='AGENT_ONLINE', synced_at=None):
             repo.save_risk_event(risk)
             trust = engine.trust_engine.evaluate_trust(agent_id)
             repo.save_audit('RISK_UPDATED', risk.reason, agent_id, details={'alert_id': alert_id, 'event_id': event.event_id, 'previous_score': risk.previous_score, 'new_score': risk.new_score}, execution_source=execution_source)
+            occurrence_count = (existing_incident['occurrence_count'] or 1) + 1 if existing_incident else 1
+            first_seen = (existing_incident['first_seen'] or existing_incident['created_at']) if existing_incident else now
             incident = dict(incident_id=alert_id, agent_id=agent_id, agent_name=event.agent.name, user_name=event.user.name,
-                            severity=rule['severity'], risk_score=risk.new_score, trust_score=trust.trust_score, status='OPEN',
+                            severity=rule['severity'], risk_score=risk.new_score, trust_score=trust.trust_score, status='ACTIVE',
                             trigger_reason='Rule matched: '+rule['name'], action_taken='MONITOR', rule_id=rule['rule_id'], rule_code=rule['code'],
                             rule_name=rule['name'], rule_version=rule.get('current_version', 1), response_action='MONITOR', response_status='NOT_REQUESTED',
                             detection_json={'event_id': event.event_id, 'rule_version': rule.get('current_version', 1), 'matched_conditions': trace, 'process': event_data['process'], 'user': event_data['user']},
-                            created_at=now, updated_at=now, execution_source=execution_source)
+                            created_at=existing_incident['created_at'] if existing_incident else now, updated_at=now,
+                            first_seen=first_seen, last_seen=now, occurrence_count=occurrence_count,
+                            alert_fingerprint=alert_fingerprint, execution_source=execution_source)
             repo.save_incident(incident)
-            repo.save_audit('ALERT_CREATED', rule['name'], agent_id, details={'alert_id': alert_id, 'event_id': event.event_id}, execution_source=execution_source)
+            repo.save_audit('ALERT_REOBSERVED' if existing_incident else 'ALERT_CREATED', rule['name'], agent_id,
+                            details={'alert_id': alert_id, 'event_id': event.event_id, 'occurrence_count': occurrence_count}, execution_source=execution_source)
             policy_context = {**event_data, 'agent_id': agent_id, 'rule_id': rule['rule_id'], 'rule_code': rule['code'],
                               'risk_score': risk.new_score, 'trust_score': trust.trust_score, 'alert_id': alert_id}
             # Historical replay evaluates manager policy, but never sends retrospective destructive commands.
@@ -91,7 +107,7 @@ def process(engine, event, execution_source='AGENT_ONLINE', synced_at=None):
             from zta.engine.policy.engine import policy_sort_key
             for policy in sorted(engine.policy_engine.policies, key=policy_sort_key):
                 decision = engine.policy_engine.evaluate_single_policy(policy, policy_context)
-                eval_id = identifier('pe', alert_id, policy.policy_id)
+                eval_id = identifier('pe', match_id, policy.policy_id)
                 pe = dict(eval_id=eval_id, policy_id=policy.policy_id, policy_code=decision.policy_code,
                           policy_name=policy.name, rule_id=rule['rule_id'], agent_id=agent_id, alert_id=alert_id,
                           risk_score=risk.new_score, trust_score=trust.trust_score, mode=decision.mode, action=decision.action,
@@ -104,7 +120,7 @@ def process(engine, event, execution_source='AGENT_ONLINE', synced_at=None):
                     else:
                         selected = decision
                         pe['status'] = 'RECOMMENDED_ONLY' if decision.mode == 'ALERT_ONLY' else 'NOT_EXECUTED'
-                        if decision.mode == 'ENFORCE' and decision.action not in ('MONITOR', 'ALERT', 'NOTIFY_SOC'):
+                        if decision.mode == 'ENFORCE' and decision.action not in ('MONITOR', 'ALERT', 'NOTIFY_SOC') and not existing_incident:
                             if execution_source == 'AGENT_OFFLINE' and not getattr(engine, 'offline_enforcement', False):
                                 pe['status'] = 'HISTORICAL_ONLY'
                                 pe['reason'] += '; historical sync does not dispatch new responses'

@@ -86,6 +86,12 @@ class ZTADatabase:
             self._ensure_column(cursor, "agents", "connection_state", "TEXT DEFAULT 'ONLINE'")
             self._ensure_column(cursor, "agents", "sync_state", "TEXT DEFAULT 'IDLE'")
             self._ensure_column(cursor, "agents", "queue_depth", "INTEGER DEFAULT 0")
+            cursor.execute("""CREATE TABLE IF NOT EXISTS agent_listening_ports (
+                agent_id TEXT NOT NULL, protocol TEXT NOT NULL, local_address TEXT NOT NULL,
+                port INTEGER NOT NULL, pid INTEGER NOT NULL DEFAULT 0, process_name TEXT,
+                state TEXT, last_observed TEXT NOT NULL,
+                PRIMARY KEY (agent_id, protocol, local_address, port, pid)
+            )""")
 
             # ZTA Events Table
             cursor.execute("""
@@ -249,6 +255,11 @@ class ZTADatabase:
             self._ensure_column(cursor, "incidents", "response_status", "TEXT")
             self._ensure_column(cursor, "incidents", "detection_json", "TEXT")
             self._ensure_column(cursor, "incidents", "execution_source", "TEXT DEFAULT 'AGENT_ONLINE'")
+            self._ensure_column(cursor, "incidents", "alert_fingerprint", "TEXT")
+            self._ensure_column(cursor, "incidents", "first_seen", "TEXT")
+            self._ensure_column(cursor, "incidents", "last_seen", "TEXT")
+            self._ensure_column(cursor, "incidents", "occurrence_count", "INTEGER NOT NULL DEFAULT 1")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_incidents_active_fingerprint ON incidents(alert_fingerprint, status)")
 
             # Commands Table
             cursor.execute("""
@@ -1513,8 +1524,9 @@ class ZTARepository:
                     risk_score, trust_score, status, trigger_reason, action_taken,
                     rule_id, rule_code, rule_name, policy_id, policy_name,
                     response_action, response_status, detection_json,
-                    created_at, updated_at, execution_source, is_demo, rule_version
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    created_at, updated_at, execution_source, is_demo, rule_version,
+                    alert_fingerprint, first_seen, last_seen, occurrence_count
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     incident["incident_id"],
@@ -1540,9 +1552,35 @@ class ZTARepository:
                     incident.get("execution_source", "AGENT_ONLINE"),
                     1 if incident.get("is_demo") or str(incident.get("rule_code", "")).startswith("DEMO-") else 0,
                     incident.get("rule_version"),
+                    incident.get("alert_fingerprint"),
+                    incident.get("first_seen", incident.get("created_at", datetime.now(timezone.utc).isoformat())),
+                    incident.get("last_seen", incident.get("updated_at", datetime.now(timezone.utc).isoformat())),
+                    incident.get("occurrence_count", 1),
                 ),
             )
             conn.commit()
+
+    def save_listening_ports(self, agent_id: str, ports: List[Dict[str, Any]]):
+        """Atomically replaces an agent's live listener snapshot from its heartbeat."""
+        with self.db.transaction() as conn:
+            conn.execute("DELETE FROM agent_listening_ports WHERE agent_id=?", (agent_id,))
+            for port in ports:
+                conn.execute("""INSERT INTO agent_listening_ports
+                    (agent_id,protocol,local_address,port,pid,process_name,state,last_observed)
+                    VALUES (?,?,?,?,?,?,?,?)""", (
+                    agent_id, str(port.get("protocol", "TCP")).upper(),
+                    str(port.get("local_address", "")), int(port["port"]),
+                    int(port.get("pid") or 0), port.get("process_name"),
+                    port.get("state"), port.get("last_observed") or datetime.now(timezone.utc).isoformat(),
+                ))
+
+    def get_listening_ports(self, agent_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        with self.db.get_connection() as conn:
+            if agent_id:
+                rows = conn.execute("SELECT * FROM agent_listening_ports WHERE agent_id=? ORDER BY port", (agent_id,))
+            else:
+                rows = conn.execute("SELECT * FROM agent_listening_ports ORDER BY agent_id,port")
+            return [dict(row) for row in rows]
 
     def get_incidents(self, limit: int = 50) -> List[Dict[str, Any]]:
         """Retrieves all incidents/alerts."""

@@ -80,8 +80,9 @@ def test_api_server_endpoints(tmp_path):
         resp = urllib.request.urlopen(post_req)
         assert resp.status == 200
         post_resp = json.loads(resp.read().decode("utf-8"))
-        assert post_resp["status"] == "PREVIEW"
+        assert post_resp["status"] == "FAILED"
         assert post_resp["action"] == "ISOLATE_ENDPOINT"
+        assert "unavailable" in post_resp["message"].lower()
 
     finally:
         server.shutdown()

@@ -17,6 +17,7 @@ class WindowsEventCollector:
 
     def __init__(self, checkpoint):
         self.checkpoint = checkpoint
+        self.listening_ports = []
 
     def poll(self, consume):
         if os.name != 'nt':
@@ -62,8 +63,11 @@ class WindowsEventCollector:
     def _poll_listening_ports(self, consume):
         """Emit newly observed TCP listeners into the canonical event pipeline."""
         command = (
-            "Get-NetTCPConnection -State Listen -ErrorAction Stop | "
-            "Select-Object LocalAddress,LocalPort,OwningProcess | ConvertTo-Json -Compress"
+            "Get-NetTCPConnection -State Listen -ErrorAction Stop | ForEach-Object { "
+            "$owner = Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue; "
+            "[pscustomobject]@{LocalAddress=$_.LocalAddress;LocalPort=$_.LocalPort;"
+            "OwningProcess=$_.OwningProcess;ProcessName=$owner.ProcessName;State=$_.State;Protocol='TCP'} } | "
+            "ConvertTo-Json -Compress"
         )
         result = subprocess.run(
             ['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', command],
@@ -76,6 +80,12 @@ class WindowsEventCollector:
         current = [identity for identity, _ in observed]
         previous = set(self.checkpoint.get('network:listeners', []))
         stamp = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+        self.listening_ports = [{
+            'port': row.get('LocalPort'), 'protocol': row.get('Protocol', 'TCP'),
+            'local_address': row.get('LocalAddress'), 'pid': row.get('OwningProcess'),
+            'process_name': row.get('ProcessName'), 'state': row.get('State', 'Listen'),
+            'last_observed': stamp,
+        } for _, row in observed]
         for identity, row in observed:
             if identity in previous:
                 continue
@@ -83,7 +93,7 @@ class WindowsEventCollector:
             consume({
                 'id': event_id, 'timestamp': stamp, 'event_type': 'LISTENING_PORT',
                 'collector_type': 'NETWORK_LISTENER',
-                'process': {'pid': row.get('OwningProcess')},
+                'process': {'pid': row.get('OwningProcess'), 'name': row.get('ProcessName')},
                 'source_ip': row.get('LocalAddress'),
                 'destination_port': row.get('LocalPort'),
                 'data': {'network': row},

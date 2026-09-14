@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import platform
+import sys
 import threading
 import time
 from dataclasses import asdict
@@ -83,6 +84,7 @@ class ZTAAgentDaemon:
                 'interface_name': net_info.get('interface_name'),
                 'ip': net_info.get('ip'),
                 'interfaces': net_info.get('interfaces', []),
+                'listening_ports': list(getattr(self.collector, 'listening_ports', [])),
                 'timestamp': datetime.now(timezone.utc).isoformat().replace('+00:00','Z')}
 
     def emit_log(self, level, event_type, message, component='AGENT', correlation_id=None, metadata=None):
@@ -220,6 +222,17 @@ class ZTAAgentDaemon:
 
     def collect(self, raw):
         raw = dict(raw)
+        process = raw.get('process') or {}
+        event_data = ((raw.get('data') or {}).get('win') or {}).get('eventdata') or {}
+        observed_pid = process.get('pid') or event_data.get('processId') or event_data.get('newProcessId')
+        try:
+            observed_pid = int(str(observed_pid), 0)
+        except (TypeError, ValueError):
+            observed_pid = -1
+        observed_name = str(process.get('name') or event_data.get('image') or event_data.get('newProcessName') or '')
+        # Exclude only this exact running agent process. Child processes retain different PIDs and are collected.
+        if observed_pid == os.getpid() and os.path.basename(observed_name).lower() == os.path.basename(sys.executable).lower():
+            return None
         raw.setdefault('agent', {'id': self.agent_id, 'name': self.hostname})
         event = ZTAEventAdapter.from_dict(raw)
         if event.agent.id != self.agent_id: raise ValueError('Collector event belongs to another agent')

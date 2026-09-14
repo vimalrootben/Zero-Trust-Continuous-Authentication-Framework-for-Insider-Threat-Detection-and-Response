@@ -22,7 +22,10 @@ Optional/defaulted: `user: {name?, domain?, session_id?}`, `process: {name?, pat
 - `GET /api/zta/session`: authenticated identity, role, and permissions.
 - `GET|POST /api/zta/users`: list/create operators; creation requires `{username,password,role}` and `users:manage`.
 - Read: `/api/zta/{overview,agents,events,rules,policies,incidents,commands,timeline,audit,services,logs}` plus analytics and schema endpoints.
-- Write: rule/policy validate, test, CRUD and toggle; event retry; manual command/action execution.
+- Write: rule/policy validate, test, CRUD and toggle; event retry; manual command/action execution. Manual script execution accepts only existing allowlisted IDs and validated parameters, then queues a manager-signed command.
+- Live port records are agent-observed heartbeat data with `agent_id`, `port`, `protocol`, `local_address`, `pid`, `process_name`, `state`, and `last_observed`.
+- Database clearing is ADMIN-only and requires a strong, two-minute, actor-bound, single-use confirmation token; operational records are cleared and the operation is re-recorded in audit.
+- An unresolved repeated alert preserves `first_seen`, advances `last_seen`, increments `occurrence_count`, remains `ACTIVE / NOT RESOLVED`, and retains each evidence record. Acknowledgement is not resolution.
 - Rule history: `GET /api/zta/rules/{id}/versions`; `POST /api/zta/rules/{id}/rollback` with `{version: positive integer}` creates a new current version. Deleting a rule linked by any policy returns HTTP 409.
 - Policy `priority` is an integer from 0 through 10000. Lower numbers are evaluated first; ties use case-insensitive `code`, then `policy_id`. Policy modes/actions/severity, risk bounds, boolean flags, strings, and optional conditions are validated on preview and mutation.
 - Live feed: WebSocket `/api/zta/ws` (alias `/ws`); browser sessions send `Sec-WebSocket-Protocol: zta-token.<access_token>`.

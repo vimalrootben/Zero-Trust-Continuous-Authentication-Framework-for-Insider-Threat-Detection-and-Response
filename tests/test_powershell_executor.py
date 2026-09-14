@@ -78,9 +78,10 @@ def test_command_builder_routes_isolation_and_allowlisted_script_actions(monkeyp
     assert script['params']=={'script_id':'DEMO_LOG_PUSH','correlation_id':'a2'}
 
 
-def test_network_isolation_template_snapshots_allow_rules_and_restores_them():
+def test_network_isolation_template_is_explicitly_unavailable():
     script=(PowerShellExecutor().scripts_dir/'network_isolation.ps1').read_text(encoding='utf-8')
-    assert 'disabled_allow_rules' in script
-    assert 'Disable-NetFirewallRule' in script and 'Enable-NetFirewallRule' in script
-    assert 'ZTA_Manager_Reachability' in script and 'ZTA_DNS_Reachability' in script
-    assert 'ISOLATION_VERIFIED' in script and 'UNISOLATION_VERIFIED' in script
+    assert 'Network isolation is unavailable' in script
+    assert 'Disable-NetFirewallRule' not in script and 'Enable-NetFirewallRule' not in script
+    result = PowerShellExecutor().execute_template('NETWORK_ISOLATION', {'Action':'ISOLATE','ManagerIP':'127.0.0.1'})
+    assert result.success is False
+    assert result.verification == 'UNAVAILABLE'

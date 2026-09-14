@@ -52,7 +52,9 @@ Current review (2026-09-14): regex branch passes 142 tests after propagating eva
 
 - Agent execution integration: 33 focused script/agent tests passed; 83 signed-command/journal regressions passed; 75 manager/offline/collector/network integration tests passed.
 - Final production execution regression: 172 passed in 78.89s after strengthening containment against existing outbound allow rules; focused firewall tests passed 55 tests.
-- Network isolation was contract-tested with mocked PowerShell process results; live firewall isolation was not run on this workstation because it would alter active connectivity and requires an elevated agent service.
+- Network isolation is intentionally unavailable: the executor and retained compatibility template return a clear failure and do not change firewall state.
+- Current scoped work adds manual allowlisted execution through manager signing, live listening ports, exact self-process exclusion, repeated-alert occurrence tracking/status, and ADMIN-only single-use database clearing to the existing dashboard.
+- Verification: full suite passes (`173 passed`); JavaScript syntax and `git diff --check` pass. Live firewall mutation was not performed because isolation is intentionally unavailable.
 
 - Git-workflow documentation check: `git diff --check` passed on `chore/git-workflow-records`.
 - Access-control focused tests: `3 passed in 3.26s`.
