@@ -1,7 +1,7 @@
 """Shared, explainable condition trees from blueprint M8/M11/A13."""
 
 import json
-import re
+import regex
 from typing import Any
 
 
@@ -21,6 +21,8 @@ class ConditionEvaluator:
     MAX_MEMBERSHIP_VALUES = 100
     MAX_FIELD_LENGTH = 128
     MAX_REGEX_LENGTH = 512
+    MAX_REGEX_INPUT_LENGTH = 4096
+    REGEX_TIMEOUT_SECONDS = 0.025
 
     def validate(self, condition: dict) -> None:
         """Reject ambiguous, empty, unsupported, or malformed conditions."""
@@ -78,8 +80,8 @@ class ConditionEvaluator:
             if len(value) > self.MAX_REGEX_LENGTH:
                 raise InvalidConditionError(f"Regular expression exceeds {self.MAX_REGEX_LENGTH} characters")
             try:
-                re.compile(value)
-            except (re.error, TypeError) as exc:
+                regex.compile(value)
+            except (regex.error, TypeError) as exc:
                 raise InvalidConditionError("Invalid regular expression") from exc
 
 
@@ -99,8 +101,14 @@ class ConditionEvaluator:
                 children = [self._evaluate(node, data) for node in nodes]
                 values = [child["result"] for child in children]
                 result = all(values) if group == "all" else any(values) if group == "any" else not values[0]
-                return {"logic": {"all": "AND", "any": "OR", "not": "NOT"}[group],
-                        "children": children, "result": result}
+                trace = {"logic": {"all": "AND", "any": "OR", "not": "NOT"}[group],
+                         "children": children, "result": result}
+                errors = [child["evaluation_error"] for child in children if child.get("evaluation_error")]
+                if errors:
+                    # An incomplete evaluation is never evidence for a match,
+                    # particularly when NOT would invert a failed regex result.
+                    trace.update(result=False, evaluation_error=errors[0])
+                return trace
         actual: Any = data
         present = True
         for segment in condition["field"].split("."):
@@ -109,6 +117,7 @@ class ConditionEvaluator:
                 break
             actual = actual[segment]
         op, expected = condition["op"], condition.get("value")
+        evaluation_error = None
         if op == "exists":
             result = present and actual is not None
         elif op == "not_exists":
@@ -127,11 +136,22 @@ class ConditionEvaluator:
                 elif op == "not_in": result = actual not in expected
                 elif op == "contains": result = expected in actual
                 elif op == "contains_icase": result = expected.casefold() in actual.casefold()
-                else: result = re.search(expected, actual) is not None
+                else:
+                    if not isinstance(actual, str):
+                        result = False
+                    elif len(actual) > self.MAX_REGEX_INPUT_LENGTH:
+                        result, evaluation_error = False, "REGEX_INPUT_LIMIT"
+                    else:
+                        try:
+                            result = regex.search(expected, actual, timeout=self.REGEX_TIMEOUT_SECONDS) is not None
+                        except TimeoutError:
+                            result, evaluation_error = False, "REGEX_TIMEOUT"
             except (TypeError, AttributeError):
                 result = False
-        return {"field": condition["field"], "op": op, "expected": expected,
-                "actual": actual, "present": present, "result": bool(result)}
+        trace = {"field": condition["field"], "op": op, "expected": expected,
+                 "actual": actual, "present": present, "result": bool(result)}
+        if evaluation_error: trace["evaluation_error"] = evaluation_error
+        return trace
 
 
 class RuleValidator:

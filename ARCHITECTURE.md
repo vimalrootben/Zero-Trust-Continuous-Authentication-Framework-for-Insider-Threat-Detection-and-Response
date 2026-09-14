@@ -6,6 +6,7 @@
 - `api/`: manager HTTP/API server, operator authentication/RBAC, agent authentication, ingestion, background processing, and WebSocket publication.
 - `engine/`: canonical pipeline: correlation -> rule matching -> risk/trust update -> policy decision -> response command.
 - Rule definitions pass one shared validator at API preview, repository create/update, and disabled-to-enabled activation boundaries.
+- Regex conditions use a timeout-capable engine with bounded pattern/input sizes; timeout and limit outcomes are recorded in evaluation traces instead of blocking workers.
 - `storage/`: SQLite schema/repository for agents, events, rules, policies, incidents, commands, audit, and retry state.
 - `dashboard/`: static operator UI served by the manager; reads `/api/zta/*` and subscribes to `/api/zta/ws`.
 - `powershell/`: validated Windows response handlers; `ruleset/` supplies default rules/policies.

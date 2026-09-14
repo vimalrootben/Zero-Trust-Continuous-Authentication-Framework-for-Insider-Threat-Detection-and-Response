@@ -23,3 +23,8 @@ Review and sequential merge verification — 2026-09-14
 - Reviewed complete rule validation on creation, updates and activation, supported enums/types, AND/OR/NOT depth and width limits, and rejected-update persistence.
 - Before fixes: 133 tests passed. Fixed toggle coercion that enabled a rule when passed the string "false"; toggles now accept only booleans or integer 0/1 (or omitted/null to invert).
 - Added API regression covering POST/PATCH and malformed toggle values; final suite: 134 passed in 38.55s. JavaScript syntax and diff checks passed. No schema migration added.
+
+4. fix/regex-evaluation-cost -> main
+- Installed the branch's documented timeout-capable regex dependency in the isolated venv. Before fixes: 137 tests passed.
+- Reproduced NOT turning REGEX_INPUT_LIMIT into a successful match. Fixed error propagation across nested AND/OR/NOT: an incomplete evaluation returns false with a visible evaluation_error at each parent.
+- Added five regressions for oversized inputs and timeout propagation; final suite: 142 passed in 39.49s. Diff checks passed. Existing expensive-regex execution test verifies the actual timeout; normal regex matching is preserved.

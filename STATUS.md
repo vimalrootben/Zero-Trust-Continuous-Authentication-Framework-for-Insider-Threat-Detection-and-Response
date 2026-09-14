@@ -2,7 +2,7 @@
 
 Updated: 2026-09-14 (Asia/Calcutta)
 
-Current review (2026-09-14): rule-validation branch passes 134 tests after strict toggle validation. Historical records below describe the original Windows environment. See update.txt for current evidence.
+Current review (2026-09-14): regex branch passes 142 tests after propagating evaluation errors through nested logic. Historical records below describe the original Windows environment. See update.txt for current evidence.
 
 ## Completed
 
@@ -15,6 +15,7 @@ Current review (2026-09-14): rule-validation branch passes 134 tests after stric
 - Implemented authenticated operator users, sessions, permission enforcement, protected WebSockets, dashboard login/logout, and admin user creation.
 - Provisioned the named runtime operator `admin` with role `ADMIN`; password login was verified. Credentials are stored in ignored `admin-credentials.env` with a restricted Windows ACL.
 - Added centralized validation that blocks invalid rule creation, updates, and reactivation without changing valid stored rules.
+- Bounded regex matching to 4096 input characters and 25 ms, with explicit timeout/limit evidence in condition traces.
 
 ## Source state
 
@@ -24,6 +25,7 @@ Current review (2026-09-14): rule-validation branch passes 134 tests after stric
 - Git executable: `C:\Program Files\Git\cmd\git.exe`; repository-local author is `Codex Agent <codex@local>`.
 - Access-control base commit: `7f0ad172c49355aa85b742345fecfccc30da182d`; branch: `feat/permission-access`.
 - Rule-validation base commit: `cb634cf9a1588f5a142ea8a51a3ce1f7983a548c`; branch: `fix/rule-activation-validation`.
+- Regex-cost base commit: `1ae3ce7eed605abbc711a710a0f5acd17e920dd4`; branch: `fix/regex-evaluation-cost`.
 - Runtime artifacts created during smoke test: `.venv/`, `zta_runtime.db`, `storage/zta_agent_local.db`, and manager/agent log files.
 
 ## Tests
@@ -35,6 +37,8 @@ Current review (2026-09-14): rule-validation branch passes 134 tests after stric
 - Runtime admin provisioning check: account creation and password login passed against `zta_runtime.db`.
 - Rule/condition focused regression: `58 passed, 1 warning in 17.70s`.
 - Full rule compatibility regression: `129 passed, 1 warning in 52.25s`.
+- Regex/rule focused regression: `61 passed in 17.68s`; full regression: `132 passed in 53.59s`.
+- The original long-path `.venv` could not load the `regex` extension DLL; verification used `C:\Users\vegeta\zta-venv` successfully.
 - JavaScript `node --check` unavailable because Node.js is not installed; dashboard integration/assets are covered by the passing Python suite.
 - Discovery: 113 tests collected.
 - Baseline: 48 passed, 65 setup errors in 2.82s; errors are `PermissionError [WinError 5]` creating pytest temp/cache directories, so this is not a valid code-failure baseline.

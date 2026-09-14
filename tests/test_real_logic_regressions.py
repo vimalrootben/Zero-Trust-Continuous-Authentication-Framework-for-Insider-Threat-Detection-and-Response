@@ -1,6 +1,7 @@
 """Regression fixtures only: none of these tests executes a Windows action."""
 from datetime import datetime
 from unittest.mock import MagicMock, patch
+import time
 
 import pytest
 
@@ -35,6 +36,25 @@ def test_nested_logic_records_every_branch():
     assert trace['result'] is True
     assert trace['children'][1]['children'][1]['result'] is False
     assert ConditionEvaluator().evaluate(tree, {'x': 2}) is False
+
+
+def test_regex_input_limit_and_timeout_are_safe():
+    evaluator = ConditionEvaluator()
+    oversized = evaluator.explain({'field':'x','op':'regex','value':'a+'}, {'x':'a' * 4097})
+    assert oversized['result'] is False
+    assert oversized['evaluation_error'] == 'REGEX_INPUT_LIMIT'
+
+    started = time.monotonic()
+    expensive = evaluator.explain({'field':'x','op':'regex','value':'((a|aa)+)+$'}, {'x':'a' * 3000 + '!'})
+    assert time.monotonic() - started < .5
+    assert expensive['result'] is False
+    assert expensive['evaluation_error'] == 'REGEX_TIMEOUT'
+
+
+def test_normal_regex_behavior_is_preserved():
+    trace = ConditionEvaluator().explain({'field':'process.name','op':'regex','value':r'^power(shell)?\.exe$'}, {'process':{'name':'powershell.exe'}})
+    assert trace['result'] is True
+    assert 'evaluation_error' not in trace
 
 
 @pytest.mark.parametrize('tree', [{}, {'all': []}, {'not': []}, {'all': [], 'any': []},
@@ -148,3 +168,25 @@ def test_event_retry_preserves_original_evidence(tmp_path):
     rows = repository.get_recent_events()
     assert len(rows) == 1
     assert rows[0]['raw_event_json'] == '{"original": true}'
+
+
+@pytest.mark.parametrize("wrapper", [
+    lambda leaf: {"not": leaf},
+    lambda leaf: {"not": {"not": leaf}},
+    lambda leaf: {"all": [{"field": "y", "op": "exists"}, {"not": leaf}]},
+    lambda leaf: {"any": [{"field": "y", "op": "exists"}, {"not": leaf}]},
+])
+def test_regex_errors_cannot_become_matches_in_nested_logic(wrapper):
+    leaf = {"field": "x", "op": "regex", "value": "a+"}
+    trace = ConditionEvaluator().explain(wrapper(leaf), {"x": "a" * 4097, "y": True})
+    assert trace["result"] is False
+    assert trace["evaluation_error"] == "REGEX_INPUT_LIMIT"
+
+
+def test_regex_timeout_propagates_through_not(monkeypatch):
+    def timeout(*args, **kwargs):
+        raise TimeoutError()
+    monkeypatch.setattr("zta.engine.events.conditions.regex.search", timeout)
+    trace = ConditionEvaluator().explain({"not": {"field": "x", "op": "regex", "value": "a+"}}, {"x": "abc"})
+    assert trace["result"] is False
+    assert trace["evaluation_error"] == "REGEX_TIMEOUT"
