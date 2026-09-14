@@ -1,5 +1,7 @@
 # Contracts
 
+The disposable `MANUAL_TEST_CHECKLIST_feat-agent-execution-integration.md` records manual acceptance evidence only and defines no API, authorization, or execution contract.
+
 ## Canonical event
 
 Required: `event_id: string`, `timestamp: ISO-8601`, `agent: {id, name, ip?}`.

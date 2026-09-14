@@ -2,6 +2,7 @@
 
 ## In progress - Verified native response pipeline
 
+- Temporary manual acceptance artifact: `MANUAL_TEST_CHECKLIST_feat-agent-execution-integration.md`; delete it after branch sign-off.
 - Delivery stays on `feat/agent-execution-integration` by explicit operator instruction; no new branch and no work on `main`.
 - Phase 1: prove the single telemetry -> normalization -> rule -> policy -> signed receiver -> native dispatcher -> verification -> durable evidence -> acknowledgement path.
 - Phase 2 (completed): PID-reuse-safe process termination plus native process inventory/execution evidence in the live dashboard.

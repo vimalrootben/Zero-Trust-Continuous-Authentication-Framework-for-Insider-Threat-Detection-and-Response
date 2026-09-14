@@ -8,6 +8,7 @@ Current review (2026-09-14): regex branch passes 142 tests after propagating eva
 
 ## Completed
 
+- Added the disposable branch-specific manual acceptance checklist `MANUAL_TEST_CHECKLIST_feat-agent-execution-integration.md`; it covers safe sequential validation, expected evidence, rollback, and cleanup for every execution-hardening phase.
 - Stopped the manager and agent runtime sessions on request; ports 8000/8080 were confirmed closed before this phase.
 - Began the ordered native-response hardening on the existing branch: added CIM process inventory through heartbeat/API/dashboard and required name/path/creation-time PID identity for `KILL_PROCESS`.
 - Added protected agent/system/security process checks and explicit offline denial for process/session/account destructive actions pending live verification.

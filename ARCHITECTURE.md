@@ -2,6 +2,7 @@
 
 ## Components
 
+- Temporary operator validation documentation lives in `MANUAL_TEST_CHECKLIST_feat-agent-execution-integration.md` and is not a runtime component; remove it after branch acceptance.
 - `agent/`: endpoint daemon; collects Windows/Sysmon or JSONL telemetry, normalizes events, queues data in SQLite, heartbeats, caches signed policy, and executes allowlisted responses.
 - `api/`: manager HTTP/API server, operator authentication/RBAC, agent authentication, ingestion, background processing, and WebSocket publication.
 - `engine/`: canonical pipeline: correlation -> rule matching -> risk/trust update -> policy decision -> response command.
