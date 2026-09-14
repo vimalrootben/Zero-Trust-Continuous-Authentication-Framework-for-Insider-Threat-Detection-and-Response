@@ -1,19 +1,19 @@
 """Comprehensive unit and integration tests for the Controlled Demo Framework,
 Exact Agent IP identification, Real Log Push system, and Dashboard Analytics."""
 
-import os
 import json
+import os
 import threading
 import time
 import socket
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 import requests
 
-from zta.agent.execution.script_executor import DemoScriptExecutor
+from zta.agent.execution.script_executor import AllowlistedScriptExecutor
 from zta.agent.execution.script_registry import SCRIPT_REGISTRY, get_demo_temp_dir
 from zta.agent.execution.validators import validate_script_request, ScriptValidationError
 from zta.agent.network_identity import get_active_network_identity
@@ -35,28 +35,21 @@ class TestScriptExecutionSecurity:
     def test_reject_unknown_script_id(self):
         """Disallowed or arbitrary script IDs must be rejected."""
         with pytest.raises(ScriptValidationError) as excinfo:
-            validate_script_request("MALICIOUS_CUSTOM_SCRIPT", {}, demo_mode_enabled=True)
+            validate_script_request("MALICIOUS_CUSTOM_SCRIPT", {})
         assert "Unauthorized or unapproved script_id" in str(excinfo.value)
 
-        with patch.dict(os.environ, {"DEMO_MODE_ENABLED": "true"}):
-            executor = DemoScriptExecutor(agent_id="test-agent")
-            payload = {"command_id": "c-01", "params": {"script_id": "UNKNOWN_CMD", "correlation_id": "corr-123"}}
-            res = executor.execute_script(payload)
-            assert res.status == "REJECTED"
-            assert "Unauthorized" in (res.error or "")
+        executor = AllowlistedScriptExecutor(agent_id="test-agent")
+        payload = {"command_id": "c-01", "params": {"script_id": "UNKNOWN_CMD", "correlation_id": "corr-123"}}
+        res = executor.execute_script(payload)
+        assert res.status == "REJECTED"
+        assert "Unauthorized" in (res.error or "")
 
-    def test_reject_when_demo_mode_disabled(self):
-        """Execution must be rejected when demo mode is false."""
-        with pytest.raises(ScriptValidationError) as excinfo:
-            validate_script_request("DEMO_PROCESS_START", {"process_name": "calc.exe"}, demo_mode_enabled=False)
-        assert "Demo execution mode is disabled" in str(excinfo.value)
-
-        with patch.dict(os.environ, {"DEMO_MODE_ENABLED": "false"}):
-            executor = DemoScriptExecutor(agent_id="test-agent")
-            payload = {"command_id": "c-02", "params": {"script_id": "DEMO_PROCESS_START"}}
-            res = executor.execute_script(payload)
-            assert res.status == "REJECTED"
-            assert "disabled" in (res.error or "")
+    def test_allowlisted_execution_has_no_environment_gate(self):
+        """Allowlisted execution depends on signed-command validation, not a mode flag."""
+        executor = AllowlistedScriptExecutor(agent_id="test-agent")
+        payload = {"command_id": "c-02", "params": {"script_id": "DEMO_PROCESS_START"}}
+        res = executor.execute_script(payload)
+        assert res.status == "SUCCESS"
 
     def test_parameter_validation_and_disallowed_keys(self):
         """Attempts to pass raw scripts or arbitrary shells must fail parameter validation."""
@@ -64,7 +57,6 @@ class TestScriptExecutionSecurity:
             validate_script_request(
                 "DEMO_PROCESS_START",
                 {"script": "powershell -ExecutionPolicy Bypass -Command calc.exe"},
-                demo_mode_enabled=True
             )
         assert "Arbitrary script execution rejected" in str(excinfo.value)
 
@@ -72,15 +64,13 @@ class TestScriptExecutionSecurity:
             validate_script_request(
                 "DEMO_PROCESS_START",
                 {"correlation_id": "invalid/path/traversal!@#$"},
-                demo_mode_enabled=True
             )
         assert "Invalid correlation_id format" in str(excinfo.value)
 
     def test_allowed_safe_execution_and_registry(self):
         """Allowlisted script executes and returns structured execution result."""
-        with patch.dict(os.environ, {"DEMO_MODE_ENABLED": "true"}):
-            executor = DemoScriptExecutor(agent_id="agent-secure-01")
-            payload = {
+        executor = AllowlistedScriptExecutor(agent_id="agent-secure-01")
+        payload = {
                 "command_id": "exec-101",
                 "requested_by": "SOC_ANALYST_ALICE",
                 "execution_source": "MANAGER_DISPATCH",
@@ -89,12 +79,12 @@ class TestScriptExecutionSecurity:
                     "correlation_id": "DEMO-CORR-101",
                 }
             }
-            res = executor.execute_script(payload)
-            assert res.status == "SUCCESS"
-            assert res.correlation_id == "DEMO-CORR-101"
-            assert res.exit_code == 0
-            assert "DEMO-TEST-001" in res.stdout_summary
-            assert res.verification == "PROCESS_STARTED_AND_EXITED"
+        res = executor.execute_script(payload)
+        assert res.status == "SUCCESS"
+        assert res.correlation_id == "DEMO-CORR-101"
+        assert res.exit_code == 0
+        assert "DEMO-TEST-001" in res.stdout_summary
+        assert res.verification == "PROCESS_STARTED_AND_EXITED"
 
 
 # ==============================================================================

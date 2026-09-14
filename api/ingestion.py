@@ -24,6 +24,8 @@ def command_result(handler, payload):
             raise ValueError('Process SUCCESS requires PROCESS_NOT_ACTIVE verification')
         if status == 'SUCCESS' and cmd['action_type'] in ('LOGOUT_USER','LOGOFF_USER') and verification != 'SESSION_NOT_ACTIVE':
             raise ValueError('Logout SUCCESS requires SESSION_NOT_ACTIVE verification')
+        if status == 'SUCCESS' and cmd['action_type'] in ('ISOLATE_ENDPOINT','DISABLE_NETWORK') and verification != 'ISOLATION_VERIFIED':
+            raise ValueError('Isolation SUCCESS requires ISOLATION_VERIFIED verification')
         if cmd['status'] in ('SUCCESS', 'FAILED'):
             if cmd['status'] != status or cmd['verification'] != verification or cmd['error_message'] != payload.get('error'):
                 raise ValueError('Conflicting terminal command result')
@@ -182,11 +184,17 @@ def import_offline(handler, event, evidence, secret, synced_at):
         if cmd['status'] not in ('SUCCESS','FAILED','INTERRUPTED'): raise ValueError('Offline command lacks a terminal result')
         if cmd['status'] == 'SUCCESS' and cmd['action_type'] in ('LOGOUT_USER','LOGOFF_USER') and cmd.get('verification') != 'SESSION_NOT_ACTIVE':
             raise ValueError('Offline logout success lacks verification')
+        if cmd['status'] == 'SUCCESS' and cmd['action_type'] in ('ISOLATE_ENDPOINT','DISABLE_NETWORK') and cmd.get('verification') != 'ISOLATION_VERIFIED':
+            raise ValueError('Offline isolation success lacks verification')
         evaluations = [pe for pe in evidence.get('policy_evaluations',[]) if pe['policy_id']==cmd['policy_id'] and pe['alert_id']==cmd['alert_id'] and pe['evaluation_result']=='TRIGGERED']
         if not evaluations: raise ValueError('Offline command lacks a triggered policy evaluation')
         from zta.engine.response.command_builder import build_command
-        from zta.powershell.ps_executor import PowerShellExecutor
-        PowerShellExecutor().execute_template(cmd['action_type'],cmd.get('params',{}),dry_run=True)
+        if cmd['action_type'] == 'DEMO_SCRIPT':
+            from zta.agent.execution.validators import validate_script_request
+            validate_script_request(cmd.get('params',{}).get('script_id'),cmd.get('params',{}))
+        else:
+            from zta.powershell.ps_executor import PowerShellExecutor
+            PowerShellExecutor().execute_template(cmd['action_type'],cmd.get('params',{}),dry_run=True)
         if cmd['action_type'] in ('LOGOUT_USER','LOGOFF_USER'):
             target = event.user.name
             if target and event.user.domain and '\\' not in target: target=event.user.domain+'\\'+target

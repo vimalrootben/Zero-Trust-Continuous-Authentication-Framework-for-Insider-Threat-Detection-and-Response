@@ -49,6 +49,7 @@ Optional/defaulted: `user: {name?, domain?, session_id?}`, `process: {name?, pat
 - Regex safety adds the `regex>=2024.11.6` runtime dependency and no schema change. On Windows, avoid excessively long environment paths because extension DLL loading remains OS-path limited.
 - Migration `20260914-rule-version-history` additively creates `rule_versions`, adds `rules.current_version`, and adds nullable `rule_version` evidence fields to `rule_matches` and `incidents`. Existing rules receive version-1 snapshots; older evidence remains valid with a null version. Version history has no deleting foreign key, so retained evidence and snapshots survive rule deletion.
 - Migration `20260914-policy-priority` additively adds `policies.priority`. Existing rows receive priorities 10, 20, ... in their prior effective order (linked rules first, then minimum risk and code), preserving selection behavior; new ties are resolved deterministically.
+- Agent-local startup additively creates/upgrades `command_journal`; existing payload/report rows remain readable and receive empty/default metadata until their next terminal update.
 
 ## States
 
@@ -56,5 +57,12 @@ Optional/defaulted: `user: {name?, domain?, session_id?}`, `process: {name?, pat
 - Agent sync field: `SYNCING | IDLE`; manager-visible status includes `ACTIVE | SYNCING | DISCONNECTED | ISOLATED`.
 - Command lifecycle: `PENDING/QUEUED -> DISPATCHED -> EXECUTING -> SUCCESS | FAILED`; executor internals may also report `RUNNING | TIMEOUT | REJECTED`, and safe actions may use `PREVIEW` or `NOT_EXECUTED`.
 - Execution source: `AGENT_ONLINE | AGENT_OFFLINE`; policy modes: `ALERT_ONLY | ENFORCE`.
+- `DEMO_SCRIPT` remains the wire-compatible action name for the existing benign script IDs, but uses the production allowlisted-script executor. No environment-mode gate participates in authorization.
+- The script allowlist remains: `DEMO_PROCESS_START`, `DEMO_FILE_CREATE`, `DEMO_FILE_MODIFY`, `DEMO_NETWORK_CONNECTION`, `DEMO_LISTENING_PORT`, `DEMO_AUTH_EVENT`, `DEMO_RULE_TRIGGER`, `DEMO_LOG_PUSH`.
+- Signed-command validation order is HMAC signature, exact `agent_id`, timezone-aware `expires_at`, command identity/state, allowlisted action, and typed parameters. Validation failure never reaches an executor.
+- Local `command_journal` records `command_id`, correlation ID, action, signed payload, terminal result, verification, timestamp, failure reason, serialized report, and acknowledgement state. `command_id` is the at-most-once key.
+- Successful process termination, logoff, and isolation require `PROCESS_NOT_ACTIVE`, `SESSION_NOT_ACTIVE`, and `ISOLATION_VERIFIED`. Unisolate requires `UNISOLATION_VERIFIED` at the executor boundary.
+- Isolation preserves the agent's configured manager hostname/address and current DNS resolvers regardless of a stale command parameter. Firewall profiles and enabled outbound allow-rule names are snapshotted for rollback; repeated isolate/unisolate operations are successful only after state verification.
+- Offline evidence is ordered by local queue insertion. A manager acknowledgement for an event also acknowledges its embedded execution evidence; unacknowledged records remain locally durable.
 
 Regex evaluation contract: input-limit and timeout errors propagate to parent AND/OR/NOT traces. A condition tree with an evaluation error does not match.

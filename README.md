@@ -166,7 +166,6 @@ Configure manager security credentials in the service environment:
 - `ZTA_ADMIN_TOKEN`: Administrator bearer token for rule/policy mutations and manual command dispatches.
 - `ZTA_AGENT_TOKENS`: JSON string mapping each provisioned Agent ID to its secret token (e.g. `{"agent-01": "secret-token-123"}`).
 - `ZTA_RISK_DECAY_PER_MINUTE`: Decay rate per minute for accumulated risk scores (default: `1.0`).
-- `DEMO_MODE_ENABLED`: Enable benign controlled test script executions (`true`/`false`).
 
 ---
 

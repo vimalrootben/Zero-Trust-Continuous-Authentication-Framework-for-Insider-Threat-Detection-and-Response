@@ -83,7 +83,14 @@ class PowerShellExecutor:
         Returns:
             PSResult object with execution output and exit code.
         """
-        action_type = "LOGOFF_USER" if action_type == "LOGOUT_USER" else action_type
+        aliases = {
+            "LOGOUT_USER": "LOGOFF_USER",
+            "ISOLATE_ENDPOINT": "NETWORK_ISOLATION",
+            "DISABLE_NETWORK": "NETWORK_ISOLATION",
+            "UNISOLATE_ENDPOINT": "NETWORK_ISOLATION",
+        }
+        original_action = action_type
+        action_type = aliases.get(action_type, action_type)
         if action_type not in self.ALLOWLISTED_TEMPLATES:
             raise UnknownTemplateError(f"Action '{action_type}' is not an allowlisted template. Allowed: {list(self.ALLOWLISTED_TEMPLATES.keys())}")
 
@@ -103,6 +110,16 @@ class PowerShellExecutor:
             if not pid.isdecimal() or int(pid) <= 4 or not isinstance(name,str) or not name or any(c in name for c in '*?\r\n'):
                 raise InvalidParameterError('Process termination requires an exact process name and PID above 4')
 
+        if action_type == "NETWORK_ISOLATION":
+            default_action = "UNISOLATE" if original_action == "UNISOLATE_ENDPOINT" else "ISOLATE"
+            action = str(params.get("Action", default_action)).upper()
+            manager_ip = str(params.get("ManagerIP", "127.0.0.1"))
+            if action not in ("ISOLATE", "UNISOLATE"):
+                raise InvalidParameterError("Network isolation Action must be ISOLATE or UNISOLATE")
+            if not re.fullmatch(r"[A-Za-z0-9.:-]{1,253}", manager_ip):
+                raise InvalidParameterError("ManagerIP must be an IP address or hostname")
+            params = {**params, "Action": action, "ManagerIP": manager_ip}
+
         script_filename = self.ALLOWLISTED_TEMPLATES[action_type]
         script_path = self.scripts_dir / script_filename
 
@@ -121,9 +138,6 @@ class PowerShellExecutor:
                 dry_run=True,
                 exit_code=0,
             )
-
-        if action_type == "NETWORK_ISOLATION":
-            return PSResult(False, "", "Network isolation is unavailable: manager reachability and containment verification are not implemented", 1)
 
         try:
             sessions = None
@@ -146,6 +160,16 @@ class PowerShellExecutor:
                 return PSResult(verified, 'Target process is no longer active' if verified else '',
                                 None if verified else completed.stderr.strip() or 'Process termination was not verified',
                                 completed.returncode, verification='PROCESS_NOT_ACTIVE' if verified else None)
+            if action_type == "NETWORK_ISOLATION":
+                expected = "ISOLATION_VERIFIED" if params["Action"] == "ISOLATE" else "UNISOLATION_VERIFIED"
+                verified = completed.returncode == 0 and expected in completed.stdout
+                return PSResult(
+                    verified,
+                    completed.stdout.strip() if verified else "",
+                    None if verified else completed.stderr.strip() or f"Network state verification did not report {expected}",
+                    completed.returncode if completed.returncode else (0 if verified else 1),
+                    verification=expected if verified else "NETWORK_STATE_UNVERIFIED",
+                )
             return PSResult(
                 success=(completed.returncode == 0),
                 output=completed.stdout.strip(),

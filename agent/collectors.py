@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
@@ -39,7 +40,7 @@ class WindowsEventCollector:
                     normalized = {k[0].lower()+k[1:]: v for k,v in data.items()}
                     kind = 'SYSTEM_EVENT'
                     if 'Sysmon' in channel:
-                        kind = {1:'PROCESS_CREATION',3:'NETWORK_CONNECTION',5:'PROCESS_TERMINATION',11:'FILE_CREATION',12:'REGISTRY_MODIFICATION',13:'REGISTRY_MODIFICATION',23:'FILE_DELETION'}.get(event_id, 'SYSTEM_EVENT')
+                        kind = {1:'PROCESS_CREATION',2:'FILE_MODIFICATION',3:'NETWORK_CONNECTION',5:'PROCESS_TERMINATION',11:'FILE_CREATION',12:'REGISTRY_MODIFICATION',13:'REGISTRY_MODIFICATION',15:'FILE_MODIFICATION',23:'FILE_DELETION'}.get(event_id, 'SYSTEM_EVENT')
                     elif channel == 'Security':
                         kind = {4624:'AUTHENTICATION',4625:'AUTHENTICATION',4688:'PROCESS_CREATION',4698:'SCHEDULED_TASK',1102:'EVENT_LOG_CLEARED'}.get(event_id,'AUTH_EVENT')
                     elif 'PowerShell' in channel: kind = 'POWERSHELL_EVENT'
@@ -52,7 +53,42 @@ class WindowsEventCollector:
                     self.checkpoint.set('channel:'+channel, record)
             except Exception as exc:
                 errors.append(channel+': '+str(exc))
+        try:
+            self._poll_listening_ports(consume)
+        except Exception as exc:
+            errors.append('LISTENING_PORTS: '+str(exc))
         if errors: raise OSError('; '.join(errors))
+
+    def _poll_listening_ports(self, consume):
+        """Emit newly observed TCP listeners into the canonical event pipeline."""
+        command = (
+            "Get-NetTCPConnection -State Listen -ErrorAction Stop | "
+            "Select-Object LocalAddress,LocalPort,OwningProcess | ConvertTo-Json -Compress"
+        )
+        result = subprocess.run(
+            ['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', command],
+            capture_output=True, text=True, timeout=15, check=True,
+        )
+        decoded = json.loads(result.stdout) if result.stdout.strip() else []
+        rows = decoded if isinstance(decoded, list) else [decoded]
+        observed = [(f"{row.get('LocalAddress')}:{row.get('LocalPort')}:{row.get('OwningProcess')}", row) for row in rows]
+        observed.sort(key=lambda item: item[0])
+        current = [identity for identity, _ in observed]
+        previous = set(self.checkpoint.get('network:listeners', []))
+        stamp = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+        for identity, row in observed:
+            if identity in previous:
+                continue
+            event_id = 'listener-' + hashlib.sha256((identity+'|'+stamp).encode()).hexdigest()
+            consume({
+                'id': event_id, 'timestamp': stamp, 'event_type': 'LISTENING_PORT',
+                'collector_type': 'NETWORK_LISTENER',
+                'process': {'pid': row.get('OwningProcess')},
+                'source_ip': row.get('LocalAddress'),
+                'destination_port': row.get('LocalPort'),
+                'data': {'network': row},
+            })
+        self.checkpoint.set('network:listeners', current)
 
 
 class JsonlCollector:

@@ -51,6 +51,29 @@ class OfflineQueue:
                         timestamp TEXT NOT NULL
                     )
                 """)
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS command_journal (
+                        command_id TEXT PRIMARY KEY,
+                        correlation_id TEXT,
+                        action TEXT NOT NULL,
+                        payload TEXT NOT NULL,
+                        result TEXT,
+                        verification TEXT,
+                        timestamp TEXT NOT NULL,
+                        failure_reason TEXT,
+                        report TEXT,
+                        reported INTEGER NOT NULL DEFAULT 0
+                    )
+                """)
+                columns = {row[1] for row in conn.execute("PRAGMA table_info(command_journal)")}
+                for name, definition in (
+                    ("correlation_id", "TEXT"), ("action", "TEXT NOT NULL DEFAULT ''"),
+                    ("result", "TEXT"), ("verification", "TEXT"),
+                    ("timestamp", "TEXT NOT NULL DEFAULT ''"), ("failure_reason", "TEXT"),
+                    ("reported", "INTEGER NOT NULL DEFAULT 0"),
+                ):
+                    if name not in columns:
+                        conn.execute(f"ALTER TABLE command_journal ADD COLUMN {name} {definition}")
                 conn.commit()
         except sqlite3.Error as e:
             raise OfflineQueueError(f"Failed to initialize offline queue table: {str(e)}")

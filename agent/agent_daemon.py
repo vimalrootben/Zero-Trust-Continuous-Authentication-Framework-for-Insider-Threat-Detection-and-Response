@@ -36,7 +36,12 @@ class ZTAAgentDaemon:
         self.hostname, self.os_type = platform.node(), platform.system()
         self.offline_queue = OfflineQueue(db_path=db_path)
         self.state = AgentState(self.offline_queue)
-        self.command_receiver = AgentCommandReceiver(command_validator=self.validate_command)
+        from urllib.parse import urlparse
+        self.command_receiver = AgentCommandReceiver(
+            command_validator=self.validate_command,
+            agent_id=self.agent_id,
+            manager_address=urlparse(self.manager_url).hostname,
+        )
         self.local_rule_engine = LocalRuleEngine([])
         self.connection_state = 'RECONNECTING'
         self.is_running = False
@@ -134,9 +139,12 @@ class ZTAAgentDaemon:
                 report = dict(command_id=command_id, agent_id=self.agent_id, action_type=command['action_type'], status='FAILED',
                               error='INTERRUPTED: execution outcome is unknown; action was not repeated', output='', verification=None,
                               executed_at='', completed_at=datetime.now(timezone.utc).isoformat())
-                conn.execute('UPDATE command_journal SET report=? WHERE command_id=?', (json.dumps(report),command_id))
+                conn.execute('UPDATE command_journal SET result=?,failure_reason=?,timestamp=?,report=? WHERE command_id=?',
+                             (report['status'], report['error'], report['completed_at'], json.dumps(report), command_id))
                 return report
-            conn.execute('INSERT INTO command_journal (command_id,payload) VALUES (?,?)', (command_id,json.dumps(command)))
+            correlation_id = str(command.get('correlation_id') or command.get('params', {}).get('correlation_id') or '')
+            conn.execute('INSERT INTO command_journal (command_id,correlation_id,action,payload,timestamp) VALUES (?,?,?,?,?)',
+                         (command_id, correlation_id, command['action_type'], json.dumps(command), datetime.now(timezone.utc).isoformat()))
         started = datetime.now(timezone.utc).isoformat()
         if command.get('execution_source') != 'AGENT_OFFLINE':
             try:
@@ -145,12 +153,14 @@ class ZTAAgentDaemon:
         report = asdict(self.command_receiver.process_command(command))
         report.update(agent_id=self.agent_id, completed_at=datetime.now(timezone.utc).isoformat())
         with self.offline_queue._get_connection() as conn:
-            conn.execute('UPDATE command_journal SET report=? WHERE command_id=?', (json.dumps(report),command_id))
+            conn.execute('UPDATE command_journal SET result=?,verification=?,failure_reason=?,timestamp=?,report=? WHERE command_id=?',
+                         (report['status'], json.dumps(report.get('verification')), report.get('failure_reason') or report.get('error'),
+                          report['completed_at'], json.dumps(report), command_id))
         return report
 
     def upload_results(self):
         with self.offline_queue._get_connection() as conn:
-            rows = conn.execute('SELECT * FROM command_journal WHERE report IS NOT NULL AND reported=0').fetchall()
+            rows = conn.execute('SELECT * FROM command_journal WHERE report IS NOT NULL AND reported=0 ORDER BY timestamp, rowid').fetchall()
         for row in rows:
             if json.loads(row['payload']).get('execution_source') == 'AGENT_OFFLINE': continue
             response = self.post('/api/v1/commands/result', json.loads(row['report']))
@@ -256,7 +266,20 @@ class ZTAAgentDaemon:
             if not isinstance(accepted,list) or not all(isinstance(i,str) for i in accepted):
                 self.connection_state = 'DEGRADED'
                 return
-            self.offline_queue.mark_synced([p['event_id'] for p in pending if p['event_id'] in accepted])
+            accepted_ids = {p['event_id'] for p in pending if p['event_id'] in accepted}
+            acknowledged_commands = []
+            for record in pending:
+                if record['event_id'] not in accepted_ids:
+                    continue
+                evidence = record['payload'].get('offline_evidence') or {}
+                acknowledged_commands.extend(
+                    cmd['command_id'] for cmd in evidence.get('commands', []) if cmd.get('command_id')
+                )
+            if acknowledged_commands:
+                with self.offline_queue._get_connection() as conn:
+                    conn.executemany('UPDATE command_journal SET reported=1 WHERE command_id=?',
+                                     [(command_id,) for command_id in acknowledged_commands])
+            self.offline_queue.mark_synced(list(accepted_ids))
             self.connection_state = 'SYNCING' if self.offline_queue.queue_depth() else 'ONLINE'
         except Exception as exc:
             self.connection_state = 'OFFLINE'

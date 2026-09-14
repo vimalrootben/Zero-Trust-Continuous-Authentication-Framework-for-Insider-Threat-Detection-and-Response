@@ -1,4 +1,4 @@
-"""Execution result data model for controlled test scripts."""
+"""Execution result data model for allowlisted agent scripts."""
 
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional
 
 @dataclass
 class ScriptExecutionResult:
-    """Detailed record of a controlled demo script execution."""
+    """Detailed record of an allowlisted script execution."""
     execution_id: str
     script_id: str
     agent_id: str

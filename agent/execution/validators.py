@@ -1,6 +1,5 @@
-"""Validation rules for controlled demo script execution."""
+"""Validation rules for allowlisted agent script execution."""
 
-import os
 import re
 from typing import Any, Dict
 
@@ -24,20 +23,16 @@ ALLOWED_SCRIPT_IDS = {
 SAFE_CORRELATION_REGEX = re.compile(r"^[a-zA-Z0-9_\-\.:]{1,128}$")
 
 
-def validate_script_request(script_id: str, parameters: Dict[str, Any], demo_mode_enabled: bool) -> None:
+def validate_script_request(script_id: str, parameters: Dict[str, Any]) -> None:
     """Strictly validates incoming script ID and parameters.
     
     Ensures:
-    1. Demo mode is enabled.
-    2. script_id is in the strict allowlist.
-    3. No arbitrary command bodies/strings are provided.
-    4. Correlation ID is clean and well-formed.
+    1. script_id is in the unchanged strict allowlist.
+    2. No arbitrary command bodies/strings are provided.
+    3. Correlation ID is clean and well-formed.
     """
-    if not demo_mode_enabled:
-        raise ScriptValidationError("Demo execution mode is disabled on this agent (DEMO_MODE_ENABLED=false).")
-
     if not script_id or script_id not in ALLOWED_SCRIPT_IDS:
-        raise ScriptValidationError(f"Unauthorized or unapproved script_id '{script_id}'. Only allowlisted demo scripts are permitted.")
+        raise ScriptValidationError(f"Unauthorized or unapproved script_id '{script_id}'. Only allowlisted scripts are permitted.")
 
     if not isinstance(parameters, dict):
         raise ScriptValidationError("Parameters must be a JSON dictionary.")

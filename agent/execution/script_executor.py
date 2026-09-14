@@ -1,6 +1,5 @@
-"""Controlled demo script executor for ZTA Agent."""
+"""Canonical allowlisted script executor for the ZTA Agent."""
 
-import os
 from datetime import datetime, timezone
 from typing import Any, Dict
 from uuid import uuid4
@@ -10,22 +9,18 @@ from zta.agent.execution.script_registry import SCRIPT_REGISTRY
 from zta.agent.execution.validators import ScriptValidationError, validate_script_request
 
 
-class DemoScriptExecutor:
-    """Executes explicitly allowlisted demo scripts when demo mode is enabled."""
+class AllowlistedScriptExecutor:
+    """Executes explicitly allowlisted scripts after payload validation."""
 
     def __init__(self, agent_id: str = "agent-unknown"):
         self.agent_id = agent_id
 
-    @property
-    def is_demo_mode_enabled(self) -> bool:
-        return os.environ.get("DEMO_MODE_ENABLED", "false").lower() in ("true", "1", "yes")
-
     def execute_script(self, command_payload: Dict[str, Any]) -> ScriptExecutionResult:
         """Validates and executes a registered benign demo script."""
-        command_id = str(command_payload.get("command_id") or f"demo-exec-{uuid4().hex[:8]}")
+        command_id = str(command_payload.get("command_id") or f"script-exec-{uuid4().hex[:8]}")
         params = command_payload.get("params") or command_payload.get("parameters") or {}
         script_id = params.get("script_id") or command_payload.get("script_id") or ""
-        correlation_id = str(params.get("correlation_id") or f"DEMO-{uuid4().hex[:12]}")
+        correlation_id = str(params.get("correlation_id") or f"EXEC-{uuid4().hex[:12]}")
         requested_by = str(command_payload.get("requested_by") or "SOC_ADMIN")
         source = str(command_payload.get("execution_source") or "MANAGER")
 
@@ -33,7 +28,7 @@ class DemoScriptExecutor:
 
         # Security validation
         try:
-            validate_script_request(script_id, params, self.is_demo_mode_enabled)
+            validate_script_request(script_id, params)
         except ScriptValidationError as err:
             completed_at = datetime.now(timezone.utc).isoformat()
             return ScriptExecutionResult(
@@ -51,7 +46,6 @@ class DemoScriptExecutor:
                 error=str(err),
                 correlation_id=correlation_id,
             )
-
         handler = SCRIPT_REGISTRY[script_id]
 
         try:
@@ -93,3 +87,7 @@ class DemoScriptExecutor:
                 error=str(exc),
                 correlation_id=correlation_id,
             )
+
+
+# Compatibility alias for existing callers; new production code uses the canonical name.
+DemoScriptExecutor = AllowlistedScriptExecutor

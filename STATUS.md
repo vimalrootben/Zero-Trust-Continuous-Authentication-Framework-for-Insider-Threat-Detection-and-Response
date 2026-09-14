@@ -2,9 +2,20 @@
 
 Updated: 2026-09-14 (Asia/Calcutta)
 
+Current implementation branch: `feat/agent-execution-integration`. Production execution integration is implemented; see `EXECUTION_INTEGRATION_PROGRESS.md` for its temporary review checklist.
+
 Current review (2026-09-14): regex branch passes 142 tests after propagating evaluation errors through nested logic. Historical records below describe the original Windows environment. See update.txt for current evidence.
 
 ## Completed
+
+- Removed the legacy environment-mode authorization gate from the canonical allowlisted-script path while preserving every existing script ID.
+- Retired the duplicate `agent/execution/executor.py` implementation to compatibility imports; split executor/registry/validator modules are canonical.
+- Routed heartbeat-delivered manager-signed commands through `AgentCommandReceiver` with signature -> agent -> expiry -> payload checks.
+- Added a self-initializing command journal with explicit correlation/action/result/verification/failure metadata and at-most-once execution.
+- Enforced signed cached-policy expiry, `allow_offline`, `ENFORCE` mode, and exact policy action for offline execution.
+- Connected process/file events, network connections, and newly observed listening ports to the canonical event pipeline and durable offline queue.
+- Replaced the intentional network-isolation failure with verified/idempotent firewall containment, manager reachability preservation, rollback/unisolate, and timeout/failure handling.
+- Marked offline command evidence reported only after its containing event receives an explicit manager acknowledgement.
 
 - Created `.venv` with declared dependencies.
 - Smoke-tested manager on ports 8000/8080: dashboard returned HTTP 200.
@@ -39,6 +50,10 @@ Current review (2026-09-14): regex branch passes 142 tests after propagating eva
 
 ## Tests
 
+- Agent execution integration: 33 focused script/agent tests passed; 83 signed-command/journal regressions passed; 75 manager/offline/collector/network integration tests passed.
+- Final production execution regression: 172 passed in 78.89s after strengthening containment against existing outbound allow rules; focused firewall tests passed 55 tests.
+- Network isolation was contract-tested with mocked PowerShell process results; live firewall isolation was not run on this workstation because it would alter active connectivity and requires an elevated agent service.
+
 - Git-workflow documentation check: `git diff --check` passed on `chore/git-workflow-records`.
 - Access-control focused tests: `3 passed in 3.26s`.
 - Full regression after compatibility updates: `116 passed, 1 warning in 43.46s`.
@@ -62,4 +77,4 @@ Current review (2026-09-14): regex branch passes 142 tests after propagating eva
 
 ## Next task
 
-Define user disable/admin-reset flows, then remove the legacy bootstrap token from deployment after test/bootstrap clients migrate to named sessions.
+Review and commit `feat/agent-execution-integration`, perform an elevated Windows endpoint isolation/unisolate smoke test in a controlled environment, then merge after review.

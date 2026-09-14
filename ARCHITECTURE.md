@@ -15,11 +15,12 @@
 
 ## Data flow
 
-1. Agent collector -> `ZTAEventAdapter` -> canonical `ZTAEvent` -> durable local queue.
+1. Agent Windows/JSONL collectors (process, file, network connection, and listening port) -> `ZTAEventAdapter` -> canonical `ZTAEvent` -> durable local queue.
 2. Online agent posts heartbeat and telemetry to manager; offline agent evaluates only signed, cached, offline-approved rules/policies.
 3. Manager persists input, runs the unified pipeline, updates risk/trust, deterministically selects the first eligible policy, creates incidents and commands stamped with the matching rule version, then broadcasts updates.
-4. Heartbeat returns signed configuration and pending commands. Agent validates identity/signature, executes an allowlisted action, journals the result, and reports it.
-5. Reconnect sync uploads queued records with explicit acknowledgements; only acknowledged IDs are removed.
+4. Heartbeat returns signed configuration and pending commands. `AgentCommandReceiver` verifies HMAC signature, agent identity, and expiry before payload validation, then dispatches the existing PowerShell/allowlisted-script executor.
+5. Every execution is claimed once in the local command journal, verified, completed durably, and reported. Duplicate command IDs return the original report without replaying the action.
+6. Reconnect sync uploads ordered detection/execution evidence with correlation IDs; only explicitly acknowledged event and command records are marked synced.
 
 ## Runtime/security boundaries
 
@@ -29,4 +30,7 @@
 - Operators can change their own password after current-password verification; other active sessions for that user are revoked.
 - Static dashboard assets remain public, but operator API reads, writes, sessions, and WebSocket streams require explicit role permissions.
 - Non-loopback agent traffic must use HTTPS. Commands and cached configuration are signed and agent-bound.
-- Response execution is allowlisted, parameter-validated, journaled, and verification-based.
+- Response execution is allowlisted, parameter-validated, journaled, and verification-based. `script_executor.py`, `script_registry.py`, and `validators.py` are the canonical script path; `executor.py` is compatibility imports only.
+- Allowlisted scripts have no environment/demo-mode bypass or gate. Authorization belongs to the existing signed command and signed cached-policy paths.
+- Offline actions are generated only by enabled cached rules and enabled `ENFORCE` policies that both allow offline operation; the signed cache and its expiry are revalidated before execution.
+- Network isolation snapshots firewall profiles and enabled outbound allow rules, disables prior allows, preserves manager/DNS reachability explicitly, verifies containment, behaves idempotently, and restores the snapshot on unisolate or failed isolation.

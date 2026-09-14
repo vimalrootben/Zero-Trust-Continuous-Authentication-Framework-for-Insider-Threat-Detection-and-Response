@@ -86,9 +86,10 @@ def test_agent_command_receiver_dispatch():
     with pytest.raises(CommandValidationError):
         receiver.process_command("not-a-dict")
 
-    # Missing action -> raises CommandValidationError
-    with pytest.raises(CommandValidationError):
-        receiver.process_command({"command_id": "cmd-1"})
+    # Missing action is rejected without reaching an executor.
+    rejected = receiver.process_command({"command_id": "cmd-1"})
+    assert rejected.status == "FAILED"
+    assert "authorization is not configured" in (rejected.error or "")
 
     # Valid command -> dispatches cleanly in dry-run
     report = receiver.process_command(

@@ -1,4 +1,5 @@
 """Translate existing policy decisions into exact, allowlisted endpoint targets."""
+import os
 from datetime import datetime, timedelta, timezone
 from zta.powershell.ps_executor import PowerShellExecutor
 
@@ -20,12 +21,24 @@ def build_command(decision, event, command_id, alert_id, source='MANAGER'):
         if not event.process.pid or not event.process.name:
             raise ValueError('Process response requires actual process ID and name')
         params = {'ProcessName': event.process.name, 'ProcessId': str(event.process.pid)}
+    elif action in ('ISOLATE_ENDPOINT', 'DISABLE_NETWORK'):
+        params = {'Action': 'ISOLATE', 'ManagerIP': os.environ.get('ZTA_MANAGER_IP', '127.0.0.1')}
+    elif action == 'DEMO_SCRIPT':
+        raw = event.raw_event if isinstance(event.raw_event, dict) else {}
+        script_id = raw.get('script_id') or raw.get('response_script_id')
+        if not script_id:
+            raise ValueError('Allowlisted script response requires script_id in the event evidence')
+        params = {'script_id': script_id, 'correlation_id': alert_id}
     else:
         raise ValueError('Action has no verified response provider: ' + action)
-    PowerShellExecutor().execute_template(action, params, dry_run=True)
+    if action == 'DEMO_SCRIPT':
+        from zta.agent.execution.validators import validate_script_request
+        validate_script_request(params['script_id'], params)
+    else:
+        PowerShellExecutor().execute_template(action, params, dry_run=True)
     now = datetime.now(timezone.utc)
     return dict(command_id=command_id, agent_id=event.agent.id, policy_id=decision.policy_id,
                 policy_code=decision.policy_code, alert_id=alert_id, action_type=action,
-                params=params, status='QUEUED', executor='WINDOWS_POWERSHELL',
+                params=params, status='QUEUED', executor='ALLOWLISTED_SCRIPT' if action == 'DEMO_SCRIPT' else 'WINDOWS_POWERSHELL',
                 created_at=now.isoformat(), expires_at=(now + timedelta(minutes=5)).isoformat(),
                 execution_source=source)

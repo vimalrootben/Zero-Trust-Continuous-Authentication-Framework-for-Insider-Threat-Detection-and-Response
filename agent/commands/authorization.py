@@ -17,12 +17,17 @@ def sign(payload, secret):
 
 
 def verify(payload, secret, agent_id):
-    if not secret or payload.get('agent_id') != agent_id:
-        raise ValueError('Agent identity or credential mismatch')
+    if not secret:
+        raise ValueError('Agent credential is not configured')
     expected = sign(payload, secret)['signature']
     if not hmac.compare_digest(expected, str(payload.get('signature', ''))):
         raise ValueError('Invalid command authorization signature')
-    expires = datetime.fromisoformat(payload['expires_at'])
+    if payload.get('agent_id') != agent_id:
+        raise ValueError('Agent identity mismatch')
+    try:
+        expires = datetime.fromisoformat(str(payload['expires_at']).replace('Z', '+00:00'))
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError('Authorization expiry is invalid') from exc
     if expires.tzinfo is None or expires <= datetime.now(timezone.utc):
         raise ValueError('Authorization expired')
     return payload

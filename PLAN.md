@@ -1,5 +1,13 @@
 # Plan
 
+## Completed - Production agent execution integration
+
+- Removed the environment-mode gate and consolidated script execution without changing either allowlist.
+- Connected signed online commands and signed cached-policy offline decisions to one receiver/executor/journal path.
+- Connected process, file, network connection, and listening-port telemetry to rules, risk, policy, execution, and acknowledged reconnect sync.
+- Implemented verified, reversible, manager-preserving network isolation and end-to-end regression coverage.
+- Acceptance: manager and offline commands execute at most once after all existing authorization checks; verified durable evidence synchronizes only after acknowledgement; full regressions pass.
+
 ## Completed - Deterministic policy selection
 
 - Added validated policy priorities, a migration preserving legacy order, stable tie-breaking, and dashboard priority controls/details.

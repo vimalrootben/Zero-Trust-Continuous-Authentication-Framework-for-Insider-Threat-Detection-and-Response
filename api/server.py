@@ -845,7 +845,7 @@ class ZTAApiHandler(SimpleHTTPRequestHandler):
                     "action_type": action,
                     "params": params,
                     "status": "QUEUED",
-                    "executor": "WINDOWS_POWERSHELL" if action != "DEMO_SCRIPT" else "DEMO_EXECUTOR",
+                "executor": "WINDOWS_POWERSHELL" if action != "DEMO_SCRIPT" else "ALLOWLISTED_SCRIPT",
                     "execution_source": "MANAGER",
                     "created_at": now_iso,
                     "expires_at": (datetime.now(timezone.utc)+timedelta(minutes=5)).isoformat(),

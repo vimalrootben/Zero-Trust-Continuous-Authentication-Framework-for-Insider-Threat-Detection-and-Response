@@ -3,7 +3,7 @@ import json
 import threading
 import time
 from datetime import datetime, timedelta, timezone
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 import requests
@@ -131,6 +131,8 @@ def test_offline_queue_and_approved_cache_sync(runtime):
     assert incident['execution_source']=='AGENT_OFFLINE'
     assert incident['response_status']=='SUCCESS'
     assert repo.get_commands()[0]['synced_at']
+    with agent.offline_queue._get_connection() as conn:
+        assert conn.execute('SELECT reported FROM command_journal').fetchone()[0]==1
     count=len(repo.get_audit_logs(1000))
     for record in saved:agent.offline_queue.enqueue(record['event_id'],record['collector_type'],record['severity'],record['payload'])
     agent.sync_offline_queue()
@@ -145,6 +147,50 @@ def test_offline_unapproved_rule_never_executes(runtime):
     agent.connection_state='OFFLINE';agent.collect(raw())
     executor.execute_template.assert_not_called()
     assert agent.offline_queue.queue_depth()==1
+
+
+def test_offline_expired_cache_and_arbitrary_action_are_denied(runtime):
+    server,agent=runtime;repo=server.runtime[0]
+    with repo.db.get_connection() as conn:
+        conn.execute("UPDATE rules SET allow_offline=1 WHERE rule_id='RULE-0004'")
+    assert agent.send_heartbeat()
+    cache=dict(agent.state.get('configuration'))
+    cache['expires_at']=(datetime.now(timezone.utc)-timedelta(seconds=1)).isoformat()
+    agent.state.set('configuration',sign(cache,TOKEN))
+    executor=MagicMock();agent.command_receiver.ps_executor=executor
+    agent.connection_state='OFFLINE';agent.collect(raw('expired-cache'))
+    executor.execute_template.assert_not_called()
+
+    valid_cache=dict(cache);valid_cache['expires_at']=(datetime.now(timezone.utc)+timedelta(minutes=5)).isoformat()
+    agent.state.set('configuration',sign(valid_cache,TOKEN))
+    policy=next(p for p in valid_cache['policies'] if p['policy_id']=='POL-LOGOUT-001')
+    command=sign({'command_id':'offline-arbitrary','agent_id':'endpoint','policy_id':policy['policy_id'],
+                  'action_type':'KILL_PROCESS','params':{'ProcessName':'x.exe','ProcessId':'999'},
+                  'status':'DISPATCHED','execution_source':'AGENT_OFFLINE',
+                  'expires_at':(datetime.now(timezone.utc)+timedelta(minutes=1)).isoformat()},TOKEN)
+    with pytest.raises(Exception,match='Offline policy authorization denied'):
+        agent.execute_command(command)
+    executor.execute_template.assert_not_called()
+
+
+@pytest.mark.parametrize('event_type', ['PROCESS_CREATION','FILE_MODIFICATION','NETWORK_CONNECTION','LISTENING_PORT'])
+def test_collector_domain_event_triggers_offline_rule_policy_and_executor(runtime,event_type):
+    server,agent=runtime;repo=server.runtime[0]
+    condition=json.dumps({'field':'event_type','op':'eq','value':event_type})
+    with repo.db.get_connection() as conn:
+        conn.execute("UPDATE rules SET condition_json=?,allow_offline=1 WHERE rule_id='RULE-0004'",(condition,))
+    assert agent.send_heartbeat()
+    executor=MagicMock();executor.execute_template.return_value=PSResult(True,'Session absent',verification='SESSION_NOT_ACTIVE')
+    agent.command_receiver.ps_executor=executor
+    agent.connection_state='OFFLINE'
+    event=raw('offline-'+event_type.lower(),False);event['event_type']=event_type
+    event['process']={'name':'benign.exe','pid':4321}
+    event['destination_ip']='127.0.0.1';event['destination_port']=44444
+    agent.collect(event)
+    executor.execute_template.assert_called_once()
+    evidence=agent.offline_queue.dequeue_batch()[0]['payload']['offline_evidence']
+    assert evidence['rule_matches'] and evidence['policy_evaluations'] and evidence['commands']
+    assert evidence['commands'][0]['status']=='SUCCESS'
 
 
 def test_worker_timeout_and_stale_syncing_agent(runtime):
@@ -272,6 +318,70 @@ def test_command_journal_replay_does_not_execute_twice(runtime):
     first=agent.execute_command(command);second=agent.execute_command(command)
     assert first==second
     executor.execute_template.assert_called_once()
+    with agent.offline_queue._get_connection() as conn:
+        row=dict(conn.execute('SELECT * FROM command_journal WHERE command_id=?',('journal-test',)).fetchone())
+    assert row['action']=='LOGOUT_USER'
+    assert row['result']=='FAILED'
+    assert row['failure_reason']=='Controlled failure'
+    assert row['timestamp']
+
+
+def test_manager_signed_allowlisted_script_reaches_receiver_and_journal(runtime):
+    server,agent=runtime;repo=server.runtime[0]
+    now=datetime.now(timezone.utc)
+    repo.save_command({
+        'command_id':'signed-script','agent_id':'endpoint','action_type':'DEMO_SCRIPT',
+        'params':{'script_id':'DEMO_LOG_PUSH','correlation_id':'corr-signed-script'},
+        'status':'QUEUED','executor':'ALLOWLISTED_SCRIPT','created_at':now.isoformat(),
+        'expires_at':(now+timedelta(minutes=5)).isoformat(),'execution_source':'AGENT_ONLINE',
+    })
+    assert agent.send_heartbeat()
+    command=repo.get_commands()[0]
+    assert command['status']=='SUCCESS'
+    assert command['verification']=='LOG_GENERATED'
+    with agent.offline_queue._get_connection() as conn:
+        journal=dict(conn.execute('SELECT * FROM command_journal WHERE command_id=?',('signed-script',)).fetchone())
+    assert journal['correlation_id']=='corr-signed-script'
+    assert journal['action']=='DEMO_SCRIPT'
+    assert journal['result']=='SUCCESS'
+    assert json.loads(journal['verification'])=='LOG_GENERATED'
+
+
+def test_command_verification_order_is_signature_then_identity_then_expiry():
+    future=(datetime.now(timezone.utc)+timedelta(minutes=1)).isoformat()
+    wrong={'command_id':'order','agent_id':'other','action_type':'DEMO_SCRIPT','status':'DISPATCHED','expires_at':future}
+    with pytest.raises(ValueError,match='signature'):
+        verify({**wrong,'signature':'invalid'},TOKEN,'endpoint')
+    with pytest.raises(ValueError,match='identity'):
+        verify(sign(wrong,TOKEN),TOKEN,'endpoint')
+
+
+@pytest.mark.parametrize('event_type', ['PROCESS_CREATION','FILE_MODIFICATION','NETWORK_CONNECTION','LISTENING_PORT'])
+def test_collected_security_domains_use_durable_event_pipeline(tmp_path,event_type):
+    agent=ZTAAgentDaemon(db_path=str(tmp_path/'collector.db'),agent_id='endpoint',token=TOKEN)
+    agent.connection_state='OFFLINE'
+    event=raw('collected-'+event_type.lower(),False)
+    event['event_type']=event_type
+    event['process']={'name':'benign.exe','pid':4321}
+    event['destination_ip']='127.0.0.1';event['destination_port']=44444
+    agent.collect(event)
+    queued=agent.offline_queue.dequeue_batch()
+    assert queued[0]['payload']['normalized_event']['event_type']==event_type
+    assert queued[0]['payload']['execution_source']=='AGENT_OFFLINE'
+
+
+def test_listening_port_collector_emits_only_new_observations():
+    from zta.agent.collectors import WindowsEventCollector
+    checkpoint=MagicMock();checkpoint.get.return_value=[]
+    result=MagicMock(returncode=0,stdout=json.dumps([
+        {'LocalAddress':'127.0.0.1','LocalPort':44445,'OwningProcess':4321}
+    ]),stderr='')
+    consumed=[]
+    with patch('zta.agent.collectors.subprocess.run',return_value=result):
+        WindowsEventCollector(checkpoint)._poll_listening_ports(consumed.append)
+    assert consumed[0]['event_type']=='LISTENING_PORT'
+    assert consumed[0]['destination_port']==44445
+    checkpoint.set.assert_called_once()
 
 
 def test_stale_event_cannot_trigger_live_logout(runtime):
