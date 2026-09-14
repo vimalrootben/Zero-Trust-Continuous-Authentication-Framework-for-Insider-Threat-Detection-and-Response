@@ -149,6 +149,12 @@ class ZTAEventAdapter:
                 proc_pid = int(proc_pid, 16) if isinstance(proc_pid, str) and proc_pid.startswith("0x") else int(proc_pid)
             except ValueError:
                 proc_pid = None
+        parent_pid = event_data.get("parentProcessId") or proc_raw.get("parent_pid")
+        if parent_pid:
+            try:
+                parent_pid = int(parent_pid, 16) if isinstance(parent_pid, str) and parent_pid.startswith("0x") else int(parent_pid)
+            except ValueError:
+                parent_pid = None
 
         process = ZTAProcess(
             name=proc_name,
@@ -156,6 +162,10 @@ class ZTAEventAdapter:
             pid=proc_pid,
             parent_name=parent_proc,
             command_line=cmd_line,
+            parent_pid=parent_pid,
+            created_at=event_data.get("utcTime") or proc_raw.get("created_at"),
+            username=username,
+            domain=domain,
         )
 
         # Network context

@@ -1,6 +1,17 @@
 # Plan
 
-## Completed - Production agent execution integration
+## In progress - Verified native response pipeline
+
+- Delivery stays on `feat/agent-execution-integration` by explicit operator instruction; no new branch and no work on `main`.
+- Phase 1: prove the single telemetry -> normalization -> rule -> policy -> signed receiver -> native dispatcher -> verification -> durable evidence -> acknowledgement path.
+- Phase 2 (completed): PID-reuse-safe process termination plus native process inventory/execution evidence in the live dashboard.
+- Phase 3: complete exact WTS session resolution/logoff and live session inventory.
+- Phase 4: add separate reversible local-account lock/unlock actions with protected-account checks.
+- Phase 5: keep network isolation disabled until transactional firewall state, rollback, reachability, restart recovery, and console-only VM tests pass.
+- Phase 6: keep offline process kill/logout disabled until their native online verification phases pass, then preserve at-most-once acknowledgement semantics.
+- Acceptance: every exposed action performs a verified native operation or returns explicit `UNAVAILABLE`; no simulated success path.
+
+## Completed - Initial agent execution integration
 
 - Removed the environment-mode gate and consolidated script execution without changing either allowlist.
 - Connected signed online commands and signed cached-policy offline decisions to one receiver/executor/journal path.
@@ -68,7 +79,7 @@ Before each task read these four files. After material work, update `PLAN.md` pr
 
 ## Git delivery rule
 
-- Start each bounded change from `main` on a dedicated branch (`fix/`, `feat/`, `docs/`, or `chore/`).
+- Continue this execution-hardening sequence on `feat/agent-execution-integration`; do not create another branch or modify `main` unless the operator later changes this instruction.
 - Keep commits focused; review follow-ups by commit reference and `git diff`, not pasted files.
 - Record the relevant test command/result before merge. Documentation-only changes require at least `git diff --check`.
 - Merge only reviewed, passing changes; retain branch history with a non-fast-forward merge.

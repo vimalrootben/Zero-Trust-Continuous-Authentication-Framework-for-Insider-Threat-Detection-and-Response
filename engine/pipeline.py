@@ -124,6 +124,9 @@ def process(engine, event, execution_source='AGENT_ONLINE', synced_at=None):
                             if execution_source == 'AGENT_OFFLINE' and not getattr(engine, 'offline_enforcement', False):
                                 pe['status'] = 'HISTORICAL_ONLY'
                                 pe['reason'] += '; historical sync does not dispatch new responses'
+                            elif execution_source == 'AGENT_OFFLINE' and decision.action in ('KILL_PROCESS','LOGOUT_USER','LOGOFF_USER','LOGOUT_SESSION','LOCK_LOCAL_ACCOUNT','UNLOCK_LOCAL_ACCOUNT'):
+                                pe['status'] = 'BLOCKED'
+                                pe['reason'] += '; offline destructive action disabled pending native verification'
                             else:
                                 try:
                                     cmd = build_command(decision, event, identifier('cmd', alert_id, policy.policy_id), alert_id, execution_source)

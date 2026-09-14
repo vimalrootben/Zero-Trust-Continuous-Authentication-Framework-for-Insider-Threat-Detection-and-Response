@@ -18,9 +18,10 @@ def build_command(decision, event, command_id, alert_id, source='MANAGER'):
             name = event.user.domain + '\\' + name
         params = {'UserName': name, 'SessionId': str(event.user.session_id or '')}
     elif action == 'KILL_PROCESS':
-        if not event.process.pid or not event.process.name:
-            raise ValueError('Process response requires actual process ID and name')
-        params = {'ProcessName': event.process.name, 'ProcessId': str(event.process.pid)}
+        if not event.process.pid or not event.process.name or not event.process.path or not event.process.created_at:
+            raise ValueError('Process response requires PID, name, executable path, and creation time')
+        params = {'ProcessName': event.process.name, 'ProcessId': str(event.process.pid),
+                  'ProcessPath': event.process.path, 'ProcessCreatedAt': event.process.created_at}
     elif action in ('ISOLATE_ENDPOINT', 'DISABLE_NETWORK'):
         params = {'Action': 'ISOLATE', 'ManagerIP': os.environ.get('ZTA_MANAGER_IP', '127.0.0.1')}
     elif action == 'DEMO_SCRIPT':

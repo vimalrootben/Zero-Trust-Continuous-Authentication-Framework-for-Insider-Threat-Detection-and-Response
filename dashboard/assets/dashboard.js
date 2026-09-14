@@ -3,7 +3,7 @@
 const $ = id => document.getElementById(id);
 const state = {
   events: [], agents: [], incidents: [], rules: [], policies: [],
-  timeline: [], auditLogs: [], services: [], overview: {}, listeningPorts: [], commands: [], scripts: [],
+  timeline: [], auditLogs: [], services: [], overview: {}, listeningPorts: [], processes: [], commands: [], scripts: [],
   schema: null,
   view: 'dashboard', rulesPoliciesSubtab: 'rules',
   page: 0, rows: [], loading: false, ws: null,
@@ -1113,6 +1113,11 @@ function renderLiveAgentControls() {
   const selectedScript = script.value;
   script.innerHTML = state.scripts.map(item => `<option value="${escapeHTML(item)}">${escapeHTML(item)}</option>`).join('');
   if (selectedScript && state.scripts.includes(selectedScript)) script.value = selectedScript;
+  $('processes-body').innerHTML = state.processes.length ? state.processes.map(process => `<tr>
+    <td>${escapeHTML(process.agent_id)}</td><td>${escapeHTML(process.pid)}</td><td>${escapeHTML(process.name)}</td>
+    <td>${escapeHTML(process.path || '—')}</td><td>${escapeHTML([process.domain,process.username].filter(Boolean).join('\\') || '—')}</td>
+    <td>${escapeHTML(process.created_at || '—')}</td><td>${escapeHTML(process.parent_pid || '—')}</td><td>${escapeHTML(process.status)}</td></tr>`).join('')
+    : '<tr><td colspan="8">No live process inventory has been received.</td></tr>';
   $('ports-body').innerHTML = state.listeningPorts.length ? state.listeningPorts.map(port => `<tr>
     <td>${escapeHTML(port.agent_id)}</td><td>${escapeHTML(port.port)}</td><td>${escapeHTML(port.protocol)}</td>
     <td>${escapeHTML(port.local_address)}</td><td>${escapeHTML(port.pid)}</td><td>${escapeHTML(port.process_name || '—')}</td>
@@ -1410,7 +1415,7 @@ async function refresh() {
     await fetchSchema();
     const endpoints = [
       'events?limit=10000', 'agents', 'incidents', 'overview',
-      'rules', 'policies', 'timeline', 'background-services', 'listening-ports', 'commands', 'scripts'
+      'rules', 'policies', 'timeline', 'background-services', 'listening-ports', 'processes', 'commands', 'scripts'
     ];
     if (state.permissions.includes('audit:read')) endpoints.push('audit');
     const results = await Promise.all(endpoints.map(async ep => {
@@ -1431,9 +1436,10 @@ async function refresh() {
     state.timeline = results[6].timeline || [];
     state.services = results[7].background_services || [];
     state.listeningPorts = results[8].listening_ports || [];
-    state.commands = results[9].commands || [];
-    state.scripts = results[10].scripts || [];
-    state.auditLogs = state.permissions.includes('audit:read') ? (results[11].audit_logs || []) : [];
+    state.processes = results[9].processes || [];
+    state.commands = results[10].commands || [];
+    state.scripts = results[11].scripts || [];
+    state.auditLogs = state.permissions.includes('audit:read') ? (results[12].audit_logs || []) : [];
 
     $('notice').hidden = (state.overview.total_events || 0) <= state.events.length;
     if (!$('notice').hidden) {

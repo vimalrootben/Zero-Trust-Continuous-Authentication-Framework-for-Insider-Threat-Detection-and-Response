@@ -18,6 +18,7 @@ class WindowsEventCollector:
     def __init__(self, checkpoint):
         self.checkpoint = checkpoint
         self.listening_ports = []
+        self.process_inventory = []
 
     def poll(self, consume):
         if os.name != 'nt':
@@ -58,7 +59,22 @@ class WindowsEventCollector:
             self._poll_listening_ports(consume)
         except Exception as exc:
             errors.append('LISTENING_PORTS: '+str(exc))
+        try:
+            self._poll_process_inventory()
+        except Exception as exc:
+            errors.append('PROCESS_INVENTORY: '+str(exc))
         if errors: raise OSError('; '.join(errors))
+
+    def _poll_process_inventory(self):
+        command = ("Get-CimInstance Win32_Process | ForEach-Object { $owner=$_.GetOwner(); "
+                   "[pscustomobject]@{pid=$_.ProcessId;name=$_.Name;path=$_.ExecutablePath;"
+                   "username=$owner.User;domain=$owner.Domain;created_at=$_.CreationDate.ToUniversalTime().ToString('o');parent_pid=$_.ParentProcessId} } | ConvertTo-Json -Compress")
+        result = subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-Command',command],
+                                capture_output=True,text=True,timeout=30,check=True)
+        decoded = json.loads(result.stdout) if result.stdout.strip() else []
+        rows = decoded if isinstance(decoded, list) else [decoded]
+        stamp = datetime.now(timezone.utc).isoformat().replace('+00:00','Z')
+        self.process_inventory = [{**row, 'last_observed': stamp, 'status': 'RUNNING'} for row in rows]
 
     def _poll_listening_ports(self, consume):
         """Emit newly observed TCP listeners into the canonical event pipeline."""

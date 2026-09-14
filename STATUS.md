@@ -8,13 +8,18 @@ Current review (2026-09-14): regex branch passes 142 tests after propagating eva
 
 ## Completed
 
+- Stopped the manager and agent runtime sessions on request; ports 8000/8080 were confirmed closed before this phase.
+- Began the ordered native-response hardening on the existing branch: added CIM process inventory through heartbeat/API/dashboard and required name/path/creation-time PID identity for `KILL_PROCESS`.
+- Added protected agent/system/security process checks and explicit offline denial for process/session/account destructive actions pending live verification.
+- Process phase verification: 42 focused tests passed before final contract cases; full regression passes (`175 passed`). An elevated disposable-process smoke test returned `PROCESS_NOT_ACTIVE`, exit 0, and confirmed the exact PID was absent. No production/user process was targeted.
+
 - Removed the legacy environment-mode authorization gate from the canonical allowlisted-script path while preserving every existing script ID.
 - Retired the duplicate `agent/execution/executor.py` implementation to compatibility imports; split executor/registry/validator modules are canonical.
 - Routed heartbeat-delivered manager-signed commands through `AgentCommandReceiver` with signature -> agent -> expiry -> payload checks.
 - Added a self-initializing command journal with explicit correlation/action/result/verification/failure metadata and at-most-once execution.
 - Enforced signed cached-policy expiry, `allow_offline`, `ENFORCE` mode, and exact policy action for offline execution.
 - Connected process/file events, network connections, and newly observed listening ports to the canonical event pipeline and durable offline queue.
-- Replaced the intentional network-isolation failure with verified/idempotent firewall containment, manager reachability preservation, rollback/unisolate, and timeout/failure handling.
+- Network isolation remains disabled and reports `UNAVAILABLE`; prior implementation claims are retired pending transactional VM-console validation.
 - Marked offline command evidence reported only after its containing event receives an explicit manager acknowledgement.
 
 - Created `.venv` with declared dependencies.
@@ -79,4 +84,4 @@ Current review (2026-09-14): regex branch passes 142 tests after propagating eva
 
 ## Next task
 
-Review and commit `feat/agent-execution-integration`, perform an elevated Windows endpoint isolation/unisolate smoke test in a controlled environment, then merge after review.
+On the existing `feat/agent-execution-integration` branch: complete and test the native PID-safe process termination path and process inventory/dashboard, then proceed to exact WTS session logout. Offline destructive actions and network isolation remain disabled.

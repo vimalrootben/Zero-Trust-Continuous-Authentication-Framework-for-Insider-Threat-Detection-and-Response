@@ -92,6 +92,11 @@ class ZTADatabase:
                 state TEXT, last_observed TEXT NOT NULL,
                 PRIMARY KEY (agent_id, protocol, local_address, port, pid)
             )""")
+            cursor.execute("""CREATE TABLE IF NOT EXISTS agent_processes (
+                agent_id TEXT NOT NULL, pid INTEGER NOT NULL, name TEXT, path TEXT, username TEXT,
+                domain TEXT, created_at TEXT, parent_pid INTEGER, status TEXT, last_observed TEXT NOT NULL,
+                PRIMARY KEY(agent_id,pid)
+            )""")
 
             # ZTA Events Table
             cursor.execute("""
@@ -1580,6 +1585,22 @@ class ZTARepository:
                 rows = conn.execute("SELECT * FROM agent_listening_ports WHERE agent_id=? ORDER BY port", (agent_id,))
             else:
                 rows = conn.execute("SELECT * FROM agent_listening_ports ORDER BY agent_id,port")
+            return [dict(row) for row in rows]
+
+    def save_process_inventory(self, agent_id: str, processes: List[Dict[str, Any]]):
+        with self.db.transaction() as conn:
+            conn.execute("DELETE FROM agent_processes WHERE agent_id=?", (agent_id,))
+            for process in processes:
+                conn.execute("""INSERT INTO agent_processes
+                    (agent_id,pid,name,path,username,domain,created_at,parent_pid,status,last_observed)
+                    VALUES (?,?,?,?,?,?,?,?,?,?)""", (agent_id,int(process['pid']),process.get('name'),process.get('path'),
+                    process.get('username'),process.get('domain'),process.get('created_at'),process.get('parent_pid'),
+                    process.get('status','RUNNING'),process.get('last_observed') or datetime.now(timezone.utc).isoformat()))
+
+    def get_process_inventory(self, agent_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        with self.db.get_connection() as conn:
+            sql = "SELECT * FROM agent_processes" + (" WHERE agent_id=?" if agent_id else "") + " ORDER BY agent_id,pid"
+            rows = conn.execute(sql, (agent_id,) if agent_id else ())
             return [dict(row) for row in rows]
 
     def get_incidents(self, limit: int = 50) -> List[Dict[str, Any]]:

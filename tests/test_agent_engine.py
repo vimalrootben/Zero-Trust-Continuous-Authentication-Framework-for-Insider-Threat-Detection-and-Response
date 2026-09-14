@@ -93,7 +93,7 @@ def test_agent_command_receiver_dispatch():
 
     # Valid command -> dispatches cleanly in dry-run
     report = receiver.process_command(
-        {"command_id": "cmd-100", "action": "KILL_PROCESS", "params": {"ProcessName": "calc.exe", "ProcessId":"777"}},
+            {"command_id": "cmd-100", "action": "KILL_PROCESS", "params": {"ProcessName": "calc.exe", "ProcessId":"777", "ProcessPath":"C:\\Windows\\calc.exe", "ProcessCreatedAt":"2026-09-14T10:00:00Z"}},
         dry_run=True,
     )
     assert report.command_id == "cmd-100"

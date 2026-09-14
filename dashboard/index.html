@@ -137,6 +137,8 @@
       <button type="submit" class="primary-action">Execute script</button>
     </form>
     <p id="manual-execution-status" class="subtle">No manual execution requested.</p>
+    <h3>Current processes</h3>
+    <div class="table-scroll"><table><thead><tr><th>Agent</th><th>PID</th><th>Name</th><th>Path</th><th>User</th><th>Created</th><th>Parent PID</th><th>Status</th></tr></thead><tbody id="processes-body"></tbody></table></div>
     <h3>Current listening/open ports</h3>
     <div class="table-scroll"><table><thead><tr><th>Agent</th><th>Port</th><th>Protocol</th><th>Local address</th><th>PID</th><th>Process</th><th>State</th><th>Last observed</th></tr></thead><tbody id="ports-body"></tbody></table></div>
     <h3>Latest execution status</h3>

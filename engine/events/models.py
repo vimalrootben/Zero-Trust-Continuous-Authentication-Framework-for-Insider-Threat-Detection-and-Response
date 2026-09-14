@@ -30,6 +30,9 @@ class ZTAProcess:
     parent_name: Optional[str] = None
     parent_pid: Optional[int] = None
     command_line: Optional[str] = None
+    created_at: Optional[str] = None
+    username: Optional[str] = None
+    domain: Optional[str] = None
 
 
 @dataclass

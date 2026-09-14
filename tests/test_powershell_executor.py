@@ -12,7 +12,7 @@ from zta.powershell.ps_executor import (
     UnknownTemplateError,
 )
 from zta.agent.commands.command_receiver import AgentCommandReceiver
-from zta.engine.events.models import ZTAAgent, ZTAEvent
+from zta.engine.events.models import ZTAAgent, ZTAEvent, ZTAProcess
 from zta.engine.response.command_builder import build_command
 
 
@@ -21,7 +21,7 @@ def test_allowlisted_template_dry_run():
     executor = PowerShellExecutor()
 
     res = executor.execute_template(
-        "KILL_PROCESS", params={"ProcessName": "calc.exe", "ProcessId":"777"}, dry_run=True
+        "KILL_PROCESS", params={"ProcessName": "calc.exe", "ProcessId":"777", "ProcessPath":"C:\\Windows\\calc.exe", "ProcessCreatedAt":"2026-09-14T10:00:00Z"}, dry_run=True
     )
     assert res.success is True
     assert "[DRY_RUN]" in res.output
@@ -85,3 +85,22 @@ def test_network_isolation_template_is_explicitly_unavailable():
     result = PowerShellExecutor().execute_template('NETWORK_ISOLATION', {'Action':'ISOLATE','ManagerIP':'127.0.0.1'})
     assert result.success is False
     assert result.verification == 'UNAVAILABLE'
+
+
+def test_process_command_carries_pid_reuse_identity():
+    now = datetime.now(timezone.utc)
+    event = ZTAEvent('event-process', now, ZTAAgent('agent','host'),
+                     process=ZTAProcess(name='worker.exe', path='C:\\Temp\\worker.exe', pid=777,
+                                        created_at=now.isoformat()), raw_event={'timestamp':now.isoformat()})
+    command = build_command(SimpleNamespace(action='KILL_PROCESS',policy_id='p1',policy_code='P1'), event, 'cmd', 'alert')
+    assert command['params'] == {'ProcessName':'worker.exe','ProcessId':'777',
+                                 'ProcessPath':'C:\\Temp\\worker.exe','ProcessCreatedAt':now.isoformat()}
+
+
+def test_process_handler_has_all_fail_closed_identity_and_protection_checks():
+    script=(PowerShellExecutor().scripts_dir/'kill_process.ps1').read_text(encoding='utf-8')
+    for contract in ('Target process does not exist', 'PID identity name changed',
+                     'PID executable path changed', 'PID creation time changed',
+                     'Protected process target', 'Protected system/security process target',
+                     'Target process remains active', 'PROCESS_NOT_ACTIVE'):
+        assert contract in script

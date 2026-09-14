@@ -48,7 +48,7 @@ class PowerShellExecutor:
 
     PARAMETERS = {
         "LOGOFF_USER": {"UserName", "SessionId"},
-        "KILL_PROCESS": {"ProcessName", "ProcessId"},
+        "KILL_PROCESS": {"ProcessName", "ProcessId", "ProcessPath", "ProcessCreatedAt", "AgentProcessId"},
         "NETWORK_ISOLATION": {"Action", "ManagerIP"},
     }
 
@@ -116,8 +116,12 @@ class PowerShellExecutor:
 
         if action_type == 'KILL_PROCESS':
             pid, name = str(params.get('ProcessId','')), params.get('ProcessName')
-            if not pid.isdecimal() or int(pid) <= 4 or not isinstance(name,str) or not name or any(c in name for c in '*?\r\n'):
-                raise InvalidParameterError('Process termination requires an exact process name and PID above 4')
+            path, created = params.get('ProcessPath'), params.get('ProcessCreatedAt')
+            if (not pid.isdecimal() or int(pid) <= 4 or not isinstance(name,str) or not name
+                    or any(c in name for c in '*?\r\n') or not isinstance(path, str) or not path
+                    or not isinstance(created, str) or not created):
+                raise InvalidParameterError('Process termination requires exact PID, name, path, and creation time')
+            params = {**params, 'AgentProcessId': str(os.getpid())}
 
         script_filename = self.ALLOWLISTED_TEMPLATES[action_type]
         script_path = self.scripts_dir / script_filename

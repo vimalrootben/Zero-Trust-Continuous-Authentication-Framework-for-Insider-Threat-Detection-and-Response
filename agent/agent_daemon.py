@@ -58,6 +58,9 @@ class ZTAAgentDaemon:
         if not command.get('command_id') or command.get('status') not in ('DISPATCHED','QUEUED'):
             raise CommandValidationError('Command identity/state invalid')
         if command.get('execution_source') == 'AGENT_OFFLINE':
+            if command.get('action_type') in ('KILL_PROCESS', 'LOGOUT_USER', 'LOGOFF_USER', 'LOGOUT_SESSION',
+                                               'LOCK_LOCAL_ACCOUNT', 'UNLOCK_LOCAL_ACCOUNT'):
+                raise CommandValidationError('Offline destructive action is disabled pending native verification')
             cache = verify(self.state.get('configuration') or {}, self.token, self.agent_id)
             policy = next((p for p in cache['policies'] if p['policy_id'] == command.get('policy_id')), None)
             if not policy or not policy.get('enabled') or not policy.get('allow_offline') or policy.get('mode') != 'ENFORCE' or policy['action'] != command.get('action_type'):
@@ -85,6 +88,7 @@ class ZTAAgentDaemon:
                 'ip': net_info.get('ip'),
                 'interfaces': net_info.get('interfaces', []),
                 'listening_ports': list(getattr(self.collector, 'listening_ports', [])),
+                'process_inventory': list(getattr(self.collector, 'process_inventory', [])),
                 'timestamp': datetime.now(timezone.utc).isoformat().replace('+00:00','Z')}
 
     def emit_log(self, level, event_type, message, component='AGENT', correlation_id=None, metadata=None):

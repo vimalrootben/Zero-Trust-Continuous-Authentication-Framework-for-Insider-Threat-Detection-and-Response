@@ -24,6 +24,8 @@ Optional/defaulted: `user: {name?, domain?, session_id?}`, `process: {name?, pat
 - Read: `/api/zta/{overview,agents,events,rules,policies,incidents,commands,timeline,audit,services,logs}` plus analytics and schema endpoints.
 - Write: rule/policy validate, test, CRUD and toggle; event retry; manual command/action execution. Manual script execution accepts only existing allowlisted IDs and validated parameters, then queues a manager-signed command.
 - Live port records are agent-observed heartbeat data with `agent_id`, `port`, `protocol`, `local_address`, `pid`, `process_name`, `state`, and `last_observed`.
+- Live process records are agent-observed CIM data with `agent_id`, `pid`, `name`, `path`, `username`, `domain`, `created_at`, `parent_pid`, `status`, and `last_observed`.
+- `KILL_PROCESS` requires signed `ProcessId`, `ProcessName`, `ProcessPath`, and `ProcessCreatedAt`; the agent supplies its own current PID as a protected boundary and verifies the target identity again immediately before termination.
 - Database clearing is ADMIN-only and requires a strong, two-minute, actor-bound, single-use confirmation token; operational records are cleared and the operation is re-recorded in audit.
 - An unresolved repeated alert preserves `first_seen`, advances `last_seen`, increments `occurrence_count`, remains `ACTIVE / NOT RESOLVED`, and retains each evidence record. Acknowledgement is not resolution.
 - Rule history: `GET /api/zta/rules/{id}/versions`; `POST /api/zta/rules/{id}/rollback` with `{version: positive integer}` creates a new current version. Deleting a rule linked by any policy returns HTTP 409.
@@ -64,8 +66,8 @@ Optional/defaulted: `user: {name?, domain?, session_id?}`, `process: {name?, pat
 - The script allowlist remains: `DEMO_PROCESS_START`, `DEMO_FILE_CREATE`, `DEMO_FILE_MODIFY`, `DEMO_NETWORK_CONNECTION`, `DEMO_LISTENING_PORT`, `DEMO_AUTH_EVENT`, `DEMO_RULE_TRIGGER`, `DEMO_LOG_PUSH`.
 - Signed-command validation order is HMAC signature, exact `agent_id`, timezone-aware `expires_at`, command identity/state, allowlisted action, and typed parameters. Validation failure never reaches an executor.
 - Local `command_journal` records `command_id`, correlation ID, action, signed payload, terminal result, verification, timestamp, failure reason, serialized report, and acknowledgement state. `command_id` is the at-most-once key.
-- Successful process termination, logoff, and isolation require `PROCESS_NOT_ACTIVE`, `SESSION_NOT_ACTIVE`, and `ISOLATION_VERIFIED`. Unisolate requires `UNISOLATION_VERIFIED` at the executor boundary.
-- Isolation preserves the agent's configured manager hostname/address and current DNS resolvers regardless of a stale command parameter. Firewall profiles and enabled outbound allow-rule names are snapshotted for rollback; repeated isolate/unisolate operations are successful only after state verification.
+- Successful process termination and logoff require `PROCESS_NOT_ACTIVE` and `SESSION_NOT_ACTIVE`. Network isolate/unisolate currently return `UNAVAILABLE` and perform no firewall mutation.
+- Offline `KILL_PROCESS`, `LOGOUT_SESSION`, and account containment are disabled until their native online handlers and verification suites pass.
 - Offline evidence is ordered by local queue insertion. A manager acknowledgement for an event also acknowledges its embedded execution evidence; unacknowledged records remain locally durable.
 
 Regex evaluation contract: input-limit and timeout errors propagate to parent AND/OR/NOT traces. A condition tree with an evaluation error does not match.

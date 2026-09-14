@@ -123,20 +123,20 @@ def test_offline_queue_and_approved_cache_sync(runtime):
     event=raw();agent.collect(event)
     agent.collect(raw('normal',False))
     assert agent.offline_queue.queue_depth()==2
-    executor.execute_template.assert_called_once()
+    executor.execute_template.assert_not_called()
     saved=agent.offline_queue.dequeue_batch()
     agent.sync_offline_queue()
     assert agent.offline_queue.queue_depth()==0
     incident=repo.get_incidents()[0]
     assert incident['execution_source']=='AGENT_OFFLINE'
-    assert incident['response_status']=='SUCCESS'
-    assert repo.get_commands()[0]['synced_at']
+    assert incident['response_status']=='BLOCKED'
+    assert repo.get_commands()==[]
     with agent.offline_queue._get_connection() as conn:
-        assert conn.execute('SELECT reported FROM command_journal').fetchone()[0]==1
+        assert conn.execute('SELECT reported FROM command_journal').fetchone() is None
     count=len(repo.get_audit_logs(1000))
     for record in saved:agent.offline_queue.enqueue(record['event_id'],record['collector_type'],record['severity'],record['payload'])
     agent.sync_offline_queue()
-    assert len(repo.get_commands())==1 and len(repo.get_incidents())==1
+    assert len(repo.get_commands())==0 and len(repo.get_incidents())==1
     assert len(repo.get_audit_logs(1000))==count
 
 
@@ -168,7 +168,7 @@ def test_offline_expired_cache_and_arbitrary_action_are_denied(runtime):
                   'action_type':'KILL_PROCESS','params':{'ProcessName':'x.exe','ProcessId':'999'},
                   'status':'DISPATCHED','execution_source':'AGENT_OFFLINE',
                   'expires_at':(datetime.now(timezone.utc)+timedelta(minutes=1)).isoformat()},TOKEN)
-    with pytest.raises(Exception,match='Offline policy authorization denied'):
+    with pytest.raises(Exception,match='Offline destructive action is disabled'):
         agent.execute_command(command)
     executor.execute_template.assert_not_called()
 
@@ -187,10 +187,10 @@ def test_collector_domain_event_triggers_offline_rule_policy_and_executor(runtim
     event['process']={'name':'benign.exe','pid':4321}
     event['destination_ip']='127.0.0.1';event['destination_port']=44444
     agent.collect(event)
-    executor.execute_template.assert_called_once()
+    executor.execute_template.assert_not_called()
     evidence=agent.offline_queue.dequeue_batch()[0]['payload']['offline_evidence']
-    assert evidence['rule_matches'] and evidence['policy_evaluations'] and evidence['commands']
-    assert evidence['commands'][0]['status']=='SUCCESS'
+    assert evidence['rule_matches'] and evidence['policy_evaluations'] and not evidence['commands']
+    assert evidence['policy_evaluations'][0]['status']=='BLOCKED'
 
 
 def test_worker_timeout_and_stale_syncing_agent(runtime):
