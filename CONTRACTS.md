@@ -73,3 +73,8 @@ Optional/defaulted: `user: {name?, domain?, session_id?}`, `process: {name?, pat
 - Offline evidence is ordered by local queue insertion. A manager acknowledgement for an event also acknowledges its embedded execution evidence; unacknowledged records remain locally durable.
 
 Regex evaluation contract: input-limit and timeout errors propagate to parent AND/OR/NOT traces. A condition tree with an evaluation error does not match.
+# Network containment state
+
+- Heartbeats may include `network_state` with `enabled`, `isolated`, `firewall_state`, and `manager_connectivity`; the manager persists this as JSON for compatibility and exposes the decoded object in agent reads.
+- `NETWORK_ISOLATION` remains unavailable unless `ZTA_ENABLE_NETWORK_ISOLATION=true`. Enabling it is an operator deployment decision made only after VM-console validation.
+- Isolation requires `ManagerIP` and an optional validated `ManagerPort`; success requires both firewall-state and manager-reachability verification. Failure performs and verifies rollback.

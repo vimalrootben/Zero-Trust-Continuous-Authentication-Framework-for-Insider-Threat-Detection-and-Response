@@ -1127,11 +1127,15 @@ function renderLiveAgentControls() {
     <td>${escapeHTML(port.local_address)}</td><td>${escapeHTML(port.pid)}</td><td>${escapeHTML(port.process_name || '—')}</td>
     <td>${escapeHTML(port.state || 'LISTEN')}</td><td>${date(port.last_observed).toLocaleString()}</td></tr>`).join('')
     : '<tr><td colspan="8">No live listener snapshot has been received.</td></tr>';
+  $('network-state-body').innerHTML = state.agents.length ? state.agents.map(agent => {
+    const network = agent.network_state || {};
+    return `<tr><td>${escapeHTML(agent.name || agent.id)}</td><td>${network.enabled ? 'YES' : 'NO'}</td><td>${network.isolated ? 'YES' : 'NO'}</td><td>${escapeHTML(network.firewall_state || 'UNKNOWN')}</td><td>${escapeHTML(network.manager_connectivity || agent.connection_state || 'UNKNOWN')}</td><td>${date(agent.last_seen).toLocaleString()}</td></tr>`;
+  }).join('') : '<tr><td colspan="6">No live network state reported.</td></tr>';
   $('commands-body').innerHTML = state.commands.length ? state.commands.slice(0, 10).map(command => `<tr>
-    <td>${escapeHTML(command.command_id)}</td><td>${escapeHTML(command.agent_id)}</td><td>${escapeHTML(command.action_type)}</td>
+    <td>${escapeHTML(command.command_id)}</td><td>${escapeHTML(command.agent_id)}</td><td>${escapeHTML(command.action_type)}</td><td>${escapeHTML((command.params || {}).ProcessName || (command.params || {}).UserName || (command.params || {}).ManagerIP || 'â€”')}</td><td>${date(command.created_at).toLocaleString()}</td>
     <td><span class="badge ${escapeHTML(command.status)}">${escapeHTML(command.status)}</span></td>
     <td>${escapeHTML(command.verification || 'PENDING')}</td><td>${escapeHTML(command.error_message || '—')}</td></tr>`).join('')
-    : '<tr><td colspan="6">No execution reports recorded.</td></tr>';
+    : '<tr><td colspan="8">No execution reports recorded.</td></tr>';
 }
 
 function render() {

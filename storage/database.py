@@ -86,6 +86,7 @@ class ZTADatabase:
             self._ensure_column(cursor, "agents", "connection_state", "TEXT DEFAULT 'ONLINE'")
             self._ensure_column(cursor, "agents", "sync_state", "TEXT DEFAULT 'IDLE'")
             self._ensure_column(cursor, "agents", "queue_depth", "INTEGER DEFAULT 0")
+            self._ensure_column(cursor, "agents", "network_state_json", "TEXT")
             cursor.execute("""CREATE TABLE IF NOT EXISTS agent_listening_ports (
                 agent_id TEXT NOT NULL, protocol TEXT NOT NULL, local_address TEXT NOT NULL,
                 port INTEGER NOT NULL, pid INTEGER NOT NULL DEFAULT 0, process_name TEXT,
@@ -1910,6 +1911,8 @@ class ZTARepository:
                 ),
             )
             conn.commit()
+            conn.execute("UPDATE agents SET network_state_json=? WHERE id=?", (json.dumps(telemetry.get('network_state',{})),telemetry['agent_id']))
+            conn.commit()
 
     def save_agent_log(self, log_entry: Dict[str, Any], execution_source: str = "AGENT_ONLINE", synced_at: Optional[str] = None):
         """Persists structured agent operational log."""
@@ -1960,6 +1963,10 @@ class ZTARepository:
         with self.db.get_connection() as conn:
             agents = [dict(row) for row in conn.execute("SELECT * FROM agents ORDER BY name")]
             for agent in agents:
+                try:
+                    agent["network_state"] = json.loads(agent.pop("network_state_json") or "{}")
+                except (TypeError, ValueError):
+                    agent["network_state"] = {}
                 try:
                     last_seen_dt = datetime.fromisoformat(agent["last_seen"])
                     if last_seen_dt.tzinfo is None:

@@ -50,7 +50,7 @@ class PowerShellExecutor:
     PARAMETERS = {
         "LOGOFF_USER": {"UserName", "Domain", "SessionId"},
         "KILL_PROCESS": {"ProcessName", "ProcessId", "ProcessPath", "ProcessCreatedAt", "AgentProcessId"},
-        "NETWORK_ISOLATION": {"Action", "ManagerIP"},
+        "NETWORK_ISOLATION": {"Action", "ManagerIP", "ManagerPort"},
         "LOCAL_ACCOUNT_CONTROL": {"Action", "UserName", "Domain", "LogoutExistingSessions", "AgentAccount"},
     }
 
@@ -103,14 +103,13 @@ class PowerShellExecutor:
             raise InvalidParameterError("Unsupported template parameter")
         self._validate_parameters(params)
         if action_type == "NETWORK_ISOLATION":
-            return PSResult(
-                success=False,
-                output="",
-                error="Network isolation is unavailable",
-                exit_code=1,
-                verification="UNAVAILABLE",
-                dry_run=dry_run,
-            )
+            if os.environ.get('ZTA_ENABLE_NETWORK_ISOLATION','false').lower() != 'true':
+                return PSResult(False,"","Network isolation is unavailable (disabled pending VM-console validation)",1,"UNAVAILABLE",dry_run)
+            action = 'UNISOLATE' if original_action == 'UNISOLATE_ENDPOINT' else str(params.get('Action','ISOLATE')).upper()
+            port = str(params.get('ManagerPort','8080'))
+            if action not in ('ISOLATE','UNISOLATE') or not port.isdecimal() or not 1 <= int(port) <= 65535:
+                raise InvalidParameterError('Invalid network isolation action or manager port')
+            params={**params,'Action':action,'ManagerPort':port}
         if action_type == 'LOCAL_ACCOUNT_CONTROL':
             requested = 'UNLOCK' if original_action == 'UNLOCK_LOCAL_ACCOUNT' else 'LOCK'
             username = params.get('UserName')
@@ -182,6 +181,10 @@ class PowerShellExecutor:
                                 None if verified else completed.stderr.strip() or 'Account state was not verified',
                                 completed.returncode if completed.returncode else (0 if verified else 1),
                                 verification=next((m for m in expected if m in completed.stdout), 'ACCOUNT_STATE_UNVERIFIED'))
+            if action_type == 'NETWORK_ISOLATION':
+                expected='UNISOLATION_VERIFIED' if params['Action']=='UNISOLATE' else 'ISOLATION_VERIFIED'
+                verified=completed.returncode==0 and expected in completed.stdout
+                return PSResult(verified,completed.stdout.strip() if verified else '',None if verified else completed.stderr.strip() or 'Network state was not verified',completed.returncode if completed.returncode else (0 if verified else 1),expected if verified else 'NETWORK_STATE_UNVERIFIED')
             return PSResult(
                 success=(completed.returncode == 0),
                 output=completed.stdout.strip(),

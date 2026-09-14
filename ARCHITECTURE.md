@@ -41,3 +41,6 @@
 - Session logout remains in the same signed receiver/executor path and uses native WTS enumeration, exact account/session resolution, immediate ownership revalidation, `WTSLogoffSession`, and disappearance verification. Heartbeats expose live WTS sessions to the manager/dashboard.
 - Local-account containment is a separate allowlisted provider. It accepts local identities only, refuses built-in/service/agent accounts, persists the previous enabled state, verifies disable/restore, and never logs out a session unless policy explicitly requests a separate logout.
 - Continuing identical detections share one active incident fingerprint while every event, rule evaluation, rule match, risk record, and audit record remains durable.
+# Network isolation transaction
+
+The canonical PowerShell executor keeps isolation deployment-gated. When enabled, its allowlisted template snapshots firewall state, persists rollback data, creates uniquely named manager/DNS/DHCP rules, applies outbound isolation, verifies firewall and manager connectivity, and rolls back on any failure. Heartbeats surface actual persisted isolation state to the existing manager/dashboard path.

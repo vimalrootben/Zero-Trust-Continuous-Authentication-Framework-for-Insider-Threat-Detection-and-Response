@@ -80,8 +80,8 @@ def test_command_builder_routes_isolation_and_allowlisted_script_actions(monkeyp
 
 def test_network_isolation_template_is_explicitly_unavailable():
     script=(PowerShellExecutor().scripts_dir/'network_isolation.ps1').read_text(encoding='utf-8')
-    assert 'Network isolation is unavailable' in script
-    assert 'Disable-NetFirewallRule' not in script and 'Enable-NetFirewallRule' not in script
+    for contract in ('disabled_rules','DHCPv4','DHCPv6','ManagerPort','Test-NetConnection','Restore-State','Verify-Rollback','ALREADY_ISOLATED','ALREADY_UNISOLATED'):
+        assert contract in script
     result = PowerShellExecutor().execute_template('NETWORK_ISOLATION', {'Action':'ISOLATE','ManagerIP':'127.0.0.1'})
     assert result.success is False
     assert result.verification == 'UNAVAILABLE'
