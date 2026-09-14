@@ -78,3 +78,5 @@ Regex evaluation contract: input-limit and timeout errors propagate to parent AN
 - Heartbeats may include `network_state` with `enabled`, `isolated`, `firewall_state`, and `manager_connectivity`; the manager persists this as JSON for compatibility and exposes the decoded object in agent reads.
 - `NETWORK_ISOLATION` remains unavailable unless `ZTA_ENABLE_NETWORK_ISOLATION=true`. Enabling it is an operator deployment decision made only after VM-console validation.
 - Isolation requires `ManagerIP` and an optional validated `ManagerPort`; success requires both firewall-state and manager-reachability verification. Failure performs and verifies rollback.
+- Windows-only native actions return verification `UNAVAILABLE` on other operating systems; they never report simulated success.
+- The existing `DEMO_AUTH_EVENT` identifier remains allowlisted for compatibility but is unavailable because the project has no native authentication-event generator.

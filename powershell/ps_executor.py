@@ -153,6 +153,9 @@ class PowerShellExecutor:
                 exit_code=0,
             )
 
+        if os.name != "nt":
+            return PSResult(False, "", f"{original_action} is unavailable on this operating system", 1, "UNAVAILABLE")
+
         if action_type == "LOGOFF_USER":
             try:
                 sessions = WindowsSessions()

@@ -15,6 +15,8 @@ Current review (2026-09-14): regex branch passes 142 tests after propagating eva
 - WTS phase: native enumeration, exact zero/one/many resolution, ownership revalidation, native logoff, verification, heartbeat persistence/API, and live dashboard table implemented; 76 focused tests pass. Disposable-account live logout is deferred to the grouped final test.
 - Local-account phase: separate lock/unlock actions, local-only and protected-account checks, durable prior-state rollback, verification markers, and explicit no-implicit-logout behavior implemented; 93 focused tests pass. Disposable-account mutation is deferred to grouped validation.
 - Network phase: implemented a gated transactional Windows firewall handler with persisted rollback state, uniquely named rules, IPv4/IPv6 manager preservation, DNS/DHCP allowances, reachability verification, rollback verification, idempotent isolate/unisolate, and live dashboard state. `ZTA_ENABLE_NETWORK_ISOLATION` remains false until a VM-console destructive test succeeds.
+- Offline phase: verified the existing single signed receiver path enforces signed cache expiry, exact agent identity, rule/policy `allow_offline`, `ENFORCE` action equality, durable command IDs, ordered evidence, and acknowledgement-only sync. Destructive offline actions remain fail-closed until live disposable-target tests are accepted.
+- Dashboard phase: live agent heartbeat and manager repositories now drive process inventory, exact WTS sessions, listening ports, containment/firewall/connectivity state, execution target/start/result/verification, current alerts, and audit evidence. The retained `DEMO_AUTH_EVENT` allowlist ID now reports `UNAVAILABLE` instead of simulated success.
 
 - Removed the legacy environment-mode authorization gate from the canonical allowlisted-script path while preserving every existing script ID.
 - Retired the duplicate `agent/execution/executor.py` implementation to compatibility imports; split executor/registry/validator modules are canonical.
@@ -58,6 +60,7 @@ Current review (2026-09-14): regex branch passes 142 tests after propagating eva
 
 ## Tests
 
+- Combined native-response regression after all seven phases: `176 passed in 63.66s`. Two legacy WTS assertions were updated to the current exact-resolution contract: username-only commands reach the agent, where zero or multiple matches fail closed.
 - Agent execution integration: 33 focused script/agent tests passed; 83 signed-command/journal regressions passed; 75 manager/offline/collector/network integration tests passed.
 - Final production execution regression: 172 passed in 78.89s after strengthening containment against existing outbound allow rules; focused firewall tests passed 55 tests.
 - Network isolation is intentionally unavailable: the executor and retained compatibility template return a clear failure and do not change firewall state.

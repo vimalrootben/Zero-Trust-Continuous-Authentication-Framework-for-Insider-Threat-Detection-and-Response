@@ -98,9 +98,8 @@ def run_demo_listening_port(correlation_id: str, params: Dict[str, Any]) -> Tupl
 
 
 def run_demo_auth_event(correlation_id: str, params: Dict[str, Any]) -> Tuple[bool, int, str, str, str]:
-    """Generates an operational authentication test marker."""
-    username = params.get("username", "demo_test_user")
-    return True, 0, f"Demo auth event simulated for user {username} with correlation {correlation_id}", "", "AUTH_SIMULATED"
+    """Retains the existing script ID but refuses simulated authentication success."""
+    return False, 1, "", "Synthetic authentication execution is unavailable", "UNAVAILABLE"
 
 
 def run_demo_rule_trigger(correlation_id: str, params: Dict[str, Any]) -> Tuple[bool, int, str, str, str]:

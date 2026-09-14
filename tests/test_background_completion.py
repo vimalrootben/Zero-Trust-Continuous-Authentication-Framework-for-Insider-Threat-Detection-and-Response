@@ -70,7 +70,7 @@ def test_background_logout_chain_replay_and_verified_result(runtime):
     submit(server,agent,event)
     repo=server.runtime[0]
     commands=repo.get_commands(); assert len(commands)==1
-    assert commands[0]['params']=={'UserName':'user','SessionId':'7'}
+    assert commands[0]['params']=={'UserName':'user','Domain':'','SessionId':'7'}
     before=(len(repo.get_rule_matches()),len(repo.get_incidents()),len(repo.get_audit_logs(1000)),len(repo.get_agent_risk_history('endpoint')))
     submit(server,agent,event)
     assert before==(len(repo.get_rule_matches()),len(repo.get_incidents()),len(repo.get_audit_logs(1000)),len(repo.get_agent_risk_history('endpoint')))
@@ -87,7 +87,7 @@ def test_background_logout_chain_replay_and_verified_result(runtime):
     executor.execute_template.assert_called_once()
 
 
-def test_alert_only_never_dispatches_and_missing_session_blocks(runtime):
+def test_alert_only_never_dispatches_and_username_only_resolves_on_agent(runtime):
     server,agent=runtime;repo=server.runtime[0]
     with repo.db.get_connection() as conn: conn.execute("UPDATE policies SET mode='ALERT_ONLY' WHERE policy_id='POL-LOGOUT-001'")
     submit(server,agent,raw())
@@ -95,8 +95,9 @@ def test_alert_only_never_dispatches_and_missing_session_blocks(runtime):
     assert repo.get_incidents()[0]['response_status']=='RECOMMENDED_ONLY'
     with repo.db.get_connection() as conn: conn.execute("UPDATE policies SET mode='ENFORCE' WHERE policy_id='POL-LOGOUT-001'")
     event=raw('missing');event['user'].pop('session_id');submit(server,agent,event)
-    assert repo.get_commands()==[]
-    assert repo.get_incidents()[0]['response_status']=='BLOCKED'
+    commands=repo.get_commands()
+    assert len(commands)==1
+    assert commands[0]['params']=={'UserName':'user','Domain':'','SessionId':''}
 
 
 def test_authentication_expiry_and_wrong_agent(runtime):
@@ -130,7 +131,8 @@ def test_offline_queue_and_approved_cache_sync(runtime):
     incident=repo.get_incidents()[0]
     assert incident['execution_source']=='AGENT_OFFLINE'
     assert incident['response_status']=='BLOCKED'
-    assert repo.get_commands()==[]
+    commands=repo.get_commands()
+    assert commands==[]
     with agent.offline_queue._get_connection() as conn:
         assert conn.execute('SELECT reported FROM command_journal').fetchone() is None
     count=len(repo.get_audit_logs(1000))

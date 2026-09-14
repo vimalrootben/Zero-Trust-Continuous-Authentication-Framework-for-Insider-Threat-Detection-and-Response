@@ -8,7 +8,8 @@
 - Phase 3 (completed in code; destructive live test deferred to grouped validation): exact WTS session resolution/logoff and live session inventory.
 - Phase 4 (completed in code; destructive live test deferred): separate reversible local-account lock/unlock actions with protected-account checks.
 - Phase 5 (completed in code; runtime gated pending console-only VM validation): transactional firewall state, IPv4/IPv6 manager reachability, DNS/DHCP preservation, idempotent restart recovery, rollback, and emergency unisolate.
-- Phase 6: keep offline process kill/logout disabled until their native online verification phases pass, then preserve at-most-once acknowledgement semantics.
+- Phase 6 (completed): cached signed-policy offline execution enforces signature, agent, expiry, rule/policy mode/action/allow-offline, durable idempotency, ordered evidence, and acknowledgement-only deletion. Destructive offline process/session/account actions remain explicitly disabled pending destructive grouped validation.
+- Phase 7 (completed): the existing dashboard consumes live process, WTS session, listener, network, command verification, and audit/alert state without mock data.
 - Acceptance: every exposed action performs a verified native operation or returns explicit `UNAVAILABLE`; no simulated success path.
 
 ## Completed - Initial agent execution integration
