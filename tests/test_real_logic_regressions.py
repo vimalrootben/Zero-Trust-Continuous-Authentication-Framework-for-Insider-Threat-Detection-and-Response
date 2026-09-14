@@ -158,22 +158,20 @@ def test_logout_requires_exact_target(params):
         run.assert_not_called()
 
 
-@pytest.mark.parametrize('gone', [True, False])
-def test_logout_success_requires_session_disappearance(gone):
+def test_logout_success_uses_native_wts_and_no_subprocess():
     with patch('zta.powershell.ps_executor.WindowsSessions') as sessions, \
          patch('zta.powershell.ps_executor.subprocess.run') as run:
-        sessions.return_value.verify_gone.return_value = gone
-        run.return_value = MagicMock(returncode=0, stdout='request submitted', stderr='')
-        result = PowerShellExecutor().execute_template('LOGOUT_USER', {'UserName': 'user', 'SessionId': '7'})
-        sessions.return_value.validate_target.assert_called_once_with(7, 'user')
-        assert result.success is gone
-        assert result.verification == ('SESSION_NOT_ACTIVE' if gone else 'SESSION_STILL_PRESENT')
+        sessions.return_value.logoff.return_value = 7
+        result = PowerShellExecutor().execute_template('LOGOUT_USER', {'UserName': 'user', 'Domain':'LOCAL', 'SessionId': '7'})
+        sessions.return_value.logoff.assert_called_once_with('user', 'LOCAL', 7)
+        assert result.success and result.verification == 'SESSION_NOT_ACTIVE'
+        run.assert_not_called()
 
 
 def test_logout_query_failure_is_not_success():
     with patch('zta.powershell.ps_executor.WindowsSessions') as sessions, \
          patch('zta.powershell.ps_executor.subprocess.run') as run:
-        sessions.return_value.validate_target.side_effect = OSError('Access denied')
+        sessions.return_value.logoff.side_effect = OSError('Access denied')
         result = PowerShellExecutor().execute_template('LOGOUT_USER', {'UserName': 'user', 'SessionId': '7'})
         assert result.success is False
         assert 'Access denied' in result.error
@@ -187,6 +185,21 @@ def test_network_isolation_is_unavailable_without_subprocess_execution():
         assert result.verification == 'UNAVAILABLE'
         assert 'unavailable' in result.error.lower()
         run.assert_not_called()
+
+
+def test_wts_username_resolution_fails_closed_for_zero_or_multiple_matches():
+    from zta.powershell.windows_sessions import WindowsSessions
+    provider = object.__new__(WindowsSessions)
+    provider.sessions = lambda: []
+    with pytest.raises(ValueError, match='No WTS session'):
+        provider.resolve('alice')
+    provider.sessions = lambda: [
+        {'session_id':1,'username':'alice','domain':'LOCAL','state':0},
+        {'session_id':2,'username':'alice','domain':'LOCAL','state':4},
+    ]
+    with pytest.raises(ValueError, match='Multiple WTS sessions'):
+        provider.resolve('alice', 'LOCAL')
+    assert provider.resolve('alice', 'LOCAL', 2)['session_id'] == 2
 
 
 def test_network_unisolate_is_also_unavailable():

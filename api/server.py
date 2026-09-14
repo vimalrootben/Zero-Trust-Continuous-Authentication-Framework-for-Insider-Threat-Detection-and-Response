@@ -608,6 +608,9 @@ class ZTAApiHandler(SimpleHTTPRequestHandler):
         elif path == "/api/zta/processes":
             agent_id = parse_qs(url.query).get("agent_id", [None])[0]
             self._send_json({"processes": self.repo.get_process_inventory(agent_id)})
+        elif path == "/api/zta/sessions":
+            agent_id = parse_qs(url.query).get("agent_id", [None])[0]
+            self._send_json({"sessions": self.repo.get_sessions(agent_id)})
         elif path == "/api/zta/scripts":
             from zta.agent.execution.validators import ALLOWED_SCRIPT_IDS
             self._send_json({"scripts": sorted(ALLOWED_SCRIPT_IDS)})
@@ -743,6 +746,10 @@ class ZTAApiHandler(SimpleHTTPRequestHandler):
                 if not isinstance(processes, list) or any(not isinstance(process, dict) for process in processes):
                     raise ValueError("process_inventory must be a list of objects")
                 self.repo.save_process_inventory(payload["agent_id"], processes)
+                sessions = payload.get("sessions", [])
+                if not isinstance(sessions, list) or any(not isinstance(session, dict) for session in sessions):
+                    raise ValueError("sessions must be a list of objects")
+                self.repo.save_sessions(payload["agent_id"], sessions)
                 self.repo.update_service_heartbeat("Heartbeat Monitor", activity=True)
                 with self.repo.db.get_connection() as conn:
                     conn.execute("UPDATE agents SET agent_version=?,collector_error=? WHERE id=?", (payload.get("agent_version"), payload.get("collector_error"), payload["agent_id"]))
@@ -943,7 +950,7 @@ class ZTAApiHandler(SimpleHTTPRequestHandler):
                     return
                 tables = ("rule_matches", "rule_evaluations", "policy_evaluations", "commands", "risk_history",
                           "incidents", "zta_events", "agent_logs", "sync_receipts", "sync_history",
-                          "agent_listening_ports", "agent_processes", "agents", "audit_log")
+                          "agent_listening_ports", "agent_processes", "agent_sessions", "agents", "audit_log")
                 with self.repo.db.transaction() as conn:
                     counts = {table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] for table in tables}
                     for table in tables:

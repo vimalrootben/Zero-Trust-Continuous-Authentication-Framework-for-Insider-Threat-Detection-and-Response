@@ -97,6 +97,11 @@ class ZTADatabase:
                 domain TEXT, created_at TEXT, parent_pid INTEGER, status TEXT, last_observed TEXT NOT NULL,
                 PRIMARY KEY(agent_id,pid)
             )""")
+            cursor.execute("""CREATE TABLE IF NOT EXISTS agent_sessions (
+                agent_id TEXT NOT NULL, session_id INTEGER NOT NULL, username TEXT NOT NULL,
+                domain TEXT, state TEXT, last_observed TEXT NOT NULL,
+                PRIMARY KEY(agent_id,session_id)
+            )""")
 
             # ZTA Events Table
             cursor.execute("""
@@ -1602,6 +1607,19 @@ class ZTARepository:
             sql = "SELECT * FROM agent_processes" + (" WHERE agent_id=?" if agent_id else "") + " ORDER BY agent_id,pid"
             rows = conn.execute(sql, (agent_id,) if agent_id else ())
             return [dict(row) for row in rows]
+
+    def save_sessions(self, agent_id: str, sessions: List[Dict[str, Any]]):
+        with self.db.transaction() as conn:
+            conn.execute("DELETE FROM agent_sessions WHERE agent_id=?", (agent_id,))
+            for session in sessions:
+                conn.execute("INSERT INTO agent_sessions VALUES (?,?,?,?,?,?)", (agent_id,int(session['session_id']),
+                    session['username'],session.get('domain'),str(session.get('state','UNKNOWN')),
+                    session.get('last_observed') or datetime.now(timezone.utc).isoformat()))
+
+    def get_sessions(self, agent_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        with self.db.get_connection() as conn:
+            sql="SELECT * FROM agent_sessions"+(" WHERE agent_id=?" if agent_id else "")+" ORDER BY agent_id,session_id"
+            return [dict(row) for row in conn.execute(sql,(agent_id,) if agent_id else ())]
 
     def get_incidents(self, limit: int = 50) -> List[Dict[str, Any]]:
         """Retrieves all incidents/alerts."""

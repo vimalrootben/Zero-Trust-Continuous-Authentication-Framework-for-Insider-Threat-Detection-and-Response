@@ -76,6 +76,11 @@ class ZTAAgentDaemon:
 
     def get_system_telemetry(self):
         net_info = get_active_network_identity(self.manager_url)
+        try:
+            from zta.powershell.windows_sessions import WindowsSessions
+            sessions = WindowsSessions().sessions()
+        except Exception:
+            sessions = []
         return {'agent_id': self.agent_id, 'hostname': self.hostname, 'os': self.os_type,
                 'agent_version': '0.1.0', 'platform': platform.platform(), 'python_version':platform.python_version(),
                 'connection_state': self.connection_state, 'queue_depth': self.offline_queue.queue_depth(),
@@ -89,6 +94,7 @@ class ZTAAgentDaemon:
                 'interfaces': net_info.get('interfaces', []),
                 'listening_ports': list(getattr(self.collector, 'listening_ports', [])),
                 'process_inventory': list(getattr(self.collector, 'process_inventory', [])),
+                'sessions': sessions,
                 'timestamp': datetime.now(timezone.utc).isoformat().replace('+00:00','Z')}
 
     def emit_log(self, level, event_type, message, component='AGENT', correlation_id=None, metadata=None):

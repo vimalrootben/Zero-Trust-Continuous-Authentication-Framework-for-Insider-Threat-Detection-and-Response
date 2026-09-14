@@ -5,7 +5,7 @@
 - Delivery stays on `feat/agent-execution-integration` by explicit operator instruction; no new branch and no work on `main`.
 - Phase 1: prove the single telemetry -> normalization -> rule -> policy -> signed receiver -> native dispatcher -> verification -> durable evidence -> acknowledgement path.
 - Phase 2 (completed): PID-reuse-safe process termination plus native process inventory/execution evidence in the live dashboard.
-- Phase 3: complete exact WTS session resolution/logoff and live session inventory.
+- Phase 3 (completed in code; destructive live test deferred to grouped validation): exact WTS session resolution/logoff and live session inventory.
 - Phase 4: add separate reversible local-account lock/unlock actions with protected-account checks.
 - Phase 5: keep network isolation disabled until transactional firewall state, rollback, reachability, restart recovery, and console-only VM tests pass.
 - Phase 6: keep offline process kill/logout disabled until their native online verification phases pass, then preserve at-most-once acknowledgement semantics.

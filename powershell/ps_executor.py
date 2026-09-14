@@ -47,7 +47,7 @@ class PowerShellExecutor:
     }
 
     PARAMETERS = {
-        "LOGOFF_USER": {"UserName", "SessionId"},
+        "LOGOFF_USER": {"UserName", "Domain", "SessionId"},
         "KILL_PROCESS": {"ProcessName", "ProcessId", "ProcessPath", "ProcessCreatedAt", "AgentProcessId"},
         "NETWORK_ISOLATION": {"Action", "ManagerIP"},
     }
@@ -111,8 +111,8 @@ class PowerShellExecutor:
             username, session_id = params.get("UserName"), str(params.get("SessionId", ""))
             if (not isinstance(username, str) or not username.strip()
                     or any(c in username for c in "*?\r\n") or username.startswith("-")
-                    or not session_id.isdecimal() or not 0 < int(session_id) <= 2147483647):
-                raise InvalidParameterError("Logout requires an exact username and a positive session ID")
+                    or (session_id and (not session_id.isdecimal() or not 0 < int(session_id) <= 2147483647))):
+                raise InvalidParameterError("Logout requires an exact username and optional positive session ID")
 
         if action_type == 'KILL_PROCESS':
             pid, name = str(params.get('ProcessId','')), params.get('ProcessName')
@@ -142,22 +142,22 @@ class PowerShellExecutor:
                 exit_code=0,
             )
 
-        try:
-            sessions = None
-            if action_type == "LOGOFF_USER":
+        if action_type == "LOGOFF_USER":
+            try:
                 sessions = WindowsSessions()
-                sessions.validate_target(int(params["SessionId"]), params["UserName"])
+                resolved_id = sessions.logoff(str(params['UserName']), str(params.get('Domain') or ''),
+                                               int(params['SessionId']) if str(params.get('SessionId') or '').isdecimal() else None)
+                return PSResult(True, f"WTS session {resolved_id} is no longer present", verification="SESSION_NOT_ACTIVE")
+            except Exception as exc:
+                return PSResult(False, "", str(exc), 1, verification="SESSION_STILL_PRESENT")
+
+        try:
             completed = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
                 timeout=self.timeout_seconds,
             )
-            if sessions is not None and completed.returncode == 0:
-                if not sessions.verify_gone(int(params["SessionId"])):
-                    return PSResult(False, "", "Target session remains present after logoff", 1,
-                                    verification="SESSION_STILL_PRESENT")
-                return PSResult(True, "Target session is no longer present", verification="SESSION_NOT_ACTIVE")
             if action_type == 'KILL_PROCESS':
                 verified = completed.returncode == 0 and completed.stdout.strip() == 'PROCESS_NOT_ACTIVE'
                 return PSResult(verified, 'Target process is no longer active' if verified else '',

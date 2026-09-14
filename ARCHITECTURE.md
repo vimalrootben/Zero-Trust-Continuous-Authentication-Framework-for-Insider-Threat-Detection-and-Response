@@ -38,4 +38,5 @@
 - Agent heartbeats carry the collector's live listening-port snapshot, which the manager atomically persists for dashboard/API reads.
 - The Windows collector also maintains a native CIM process snapshot (PID, name, executable path, owner/domain, creation time, parent PID). Process response commands carry the event's immutable path and creation-time identity through the existing signed dispatcher.
 - Process termination re-reads the live PID, compares name/path/creation time, rejects agent/system/security targets, terminates, and reports success only after the PID is absent. Offline process/session actions remain fail-closed.
+- Session logout remains in the same signed receiver/executor path and uses native WTS enumeration, exact account/session resolution, immediate ownership revalidation, `WTSLogoffSession`, and disappearance verification. Heartbeats expose live WTS sessions to the manager/dashboard.
 - Continuing identical detections share one active incident fingerprint while every event, rule evaluation, rule match, risk record, and audit record remains durable.

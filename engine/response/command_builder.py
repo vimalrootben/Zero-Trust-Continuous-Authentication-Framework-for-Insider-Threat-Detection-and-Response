@@ -14,9 +14,7 @@ def build_command(decision, event, command_id, alert_id, source='MANAGER'):
     action = decision.action
     if action in ('LOGOUT_USER', 'LOGOFF_USER'):
         name = event.user.name
-        if name and event.user.domain and '\\' not in name:
-            name = event.user.domain + '\\' + name
-        params = {'UserName': name, 'SessionId': str(event.user.session_id or '')}
+        params = {'UserName': name, 'Domain': event.user.domain or '', 'SessionId': str(event.user.session_id or '')}
     elif action == 'KILL_PROCESS':
         if not event.process.pid or not event.process.name or not event.process.path or not event.process.created_at:
             raise ValueError('Process response requires PID, name, executable path, and creation time')

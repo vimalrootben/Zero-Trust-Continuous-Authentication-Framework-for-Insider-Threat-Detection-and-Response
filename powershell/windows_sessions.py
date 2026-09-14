@@ -27,6 +27,26 @@ class WindowsSessions:
         self.api.WTSQuerySessionInformationW.restype = wintypes.BOOL
         self.api.WTSFreeMemory.argtypes = [ctypes.c_void_p]
         self.api.WTSFreeMemory.restype = None
+        self.api.WTSLogoffSession.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.BOOL]
+        self.api.WTSLogoffSession.restype = wintypes.BOOL
+
+    def sessions(self) -> list[dict]:
+        """Return live WTS sessions with exact account identity."""
+        buffer = ctypes.POINTER(self.session_type)()
+        count = wintypes.DWORD()
+        if not self.api.WTSEnumerateSessionsW(None, 0, 1, ctypes.byref(buffer), ctypes.byref(count)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        try:
+            result = []
+            for index in range(count.value):
+                item = buffer[index]
+                user, domain = self._text(int(item.id), 5), self._text(int(item.id), 7)
+                if user:
+                    result.append({'session_id':int(item.id), 'username':user, 'domain':domain,
+                                   'state':int(item.state)})
+            return result
+        finally:
+            self.api.WTSFreeMemory(buffer)
 
     def session_ids(self) -> set[int]:
         """Return local session IDs; API failure is never treated as absence."""
@@ -58,6 +78,27 @@ class WindowsSessions:
         expected = f"{domain}\\{user}" if "\\" in username else user
         if not user or username.casefold() != expected.casefold():
             raise ValueError("Target username does not own the requested session")
+
+    def resolve(self, username: str, domain: str = "", session_id: int | None = None) -> dict:
+        matches = [s for s in self.sessions() if s['username'].casefold() == username.casefold()
+                   and (not domain or s['domain'].casefold() == domain.casefold())]
+        if session_id is not None:
+            matches = [s for s in matches if s['session_id'] == session_id]
+        if not matches:
+            raise ValueError("No WTS session matches the requested account")
+        if len(matches) != 1:
+            raise ValueError("Multiple WTS sessions match; an exact session ID is required")
+        return matches[0]
+
+    def logoff(self, username: str, domain: str = "", session_id: int | None = None) -> int:
+        target = self.resolve(username, domain, session_id)
+        # Re-resolve immediately before mutation to close the ownership race.
+        target = self.resolve(username, domain, target['session_id'])
+        if not self.api.WTSLogoffSession(None, target['session_id'], True):
+            raise ctypes.WinError(ctypes.get_last_error())
+        if not self.verify_gone(target['session_id']):
+            raise RuntimeError("Target session remains present after WTS logoff")
+        return target['session_id']
 
     def verify_gone(self, session_id: int, timeout: float = 10) -> bool:
         """Verify disappearance; disconnected sessions still count as present."""

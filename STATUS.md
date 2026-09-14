@@ -12,6 +12,7 @@ Current review (2026-09-14): regex branch passes 142 tests after propagating eva
 - Began the ordered native-response hardening on the existing branch: added CIM process inventory through heartbeat/API/dashboard and required name/path/creation-time PID identity for `KILL_PROCESS`.
 - Added protected agent/system/security process checks and explicit offline denial for process/session/account destructive actions pending live verification.
 - Process phase verification: 42 focused tests passed before final contract cases; full regression passes (`175 passed`). An elevated disposable-process smoke test returned `PROCESS_NOT_ACTIVE`, exit 0, and confirmed the exact PID was absent. No production/user process was targeted.
+- WTS phase: native enumeration, exact zero/one/many resolution, ownership revalidation, native logoff, verification, heartbeat persistence/API, and live dashboard table implemented; 76 focused tests pass. Disposable-account live logout is deferred to the grouped final test.
 
 - Removed the legacy environment-mode authorization gate from the canonical allowlisted-script path while preserving every existing script ID.
 - Retired the duplicate `agent/execution/executor.py` implementation to compatibility imports; split executor/registry/validator modules are canonical.

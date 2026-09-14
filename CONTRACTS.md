@@ -26,6 +26,7 @@ Optional/defaulted: `user: {name?, domain?, session_id?}`, `process: {name?, pat
 - Live port records are agent-observed heartbeat data with `agent_id`, `port`, `protocol`, `local_address`, `pid`, `process_name`, `state`, and `last_observed`.
 - Live process records are agent-observed CIM data with `agent_id`, `pid`, `name`, `path`, `username`, `domain`, `created_at`, `parent_pid`, `status`, and `last_observed`.
 - `KILL_PROCESS` requires signed `ProcessId`, `ProcessName`, `ProcessPath`, and `ProcessCreatedAt`; the agent supplies its own current PID as a protected boundary and verifies the target identity again immediately before termination.
+- `LOGOUT_USER`/`LOGOUT_SESSION` resolves `UserName`, optional `Domain`, and optional `SessionId` against live WTS sessions. Zero matches and ambiguous username-only matches fail closed; ownership is revalidated before WTS logoff and success requires session disappearance.
 - Database clearing is ADMIN-only and requires a strong, two-minute, actor-bound, single-use confirmation token; operational records are cleared and the operation is re-recorded in audit.
 - An unresolved repeated alert preserves `first_seen`, advances `last_seen`, increments `occurrence_count`, remains `ACTIVE / NOT RESOLVED`, and retains each evidence record. Acknowledgement is not resolution.
 - Rule history: `GET /api/zta/rules/{id}/versions`; `POST /api/zta/rules/{id}/rollback` with `{version: positive integer}` creates a new current version. Deleting a rule linked by any policy returns HTTP 409.
