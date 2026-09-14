@@ -104,3 +104,15 @@ def test_process_handler_has_all_fail_closed_identity_and_protection_checks():
                      'Protected process target', 'Protected system/security process target',
                      'Target process remains active', 'PROCESS_NOT_ACTIVE'):
         assert contract in script
+
+
+def test_local_account_actions_use_one_reversible_verified_template():
+    script=(PowerShellExecutor().scripts_dir/'local_account_control.ps1').read_text(encoding='utf-8')
+    for contract in ('Only local accounts may be contained','Protected account target','WasEnabled',
+                     'LOCAL_ACCOUNT_DISABLED','LOCAL_ACCOUNT_ENABLED','LOCAL_ACCOUNT_RESTORED_DISABLED'):
+        assert contract in script
+    lock=PowerShellExecutor().execute_template('LOCK_LOCAL_ACCOUNT',
+        {'UserName':'disposable','Domain':'.','LogoutExistingSessions':'false'},dry_run=True)
+    unlock=PowerShellExecutor().execute_template('UNLOCK_LOCAL_ACCOUNT',
+        {'UserName':'disposable','Domain':'.','LogoutExistingSessions':'false'},dry_run=True)
+    assert lock.success and unlock.success

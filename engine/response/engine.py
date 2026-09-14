@@ -41,6 +41,9 @@ class ZTAResponseEngine:
                 res = self.ps_executor.execute_template("LOGOFF_USER", params={"UserName": str(params.get("user_name", "")), "SessionId": str(params.get("session_id", ""))}, dry_run=dry_run)
             elif action_type == "KILL_PROCESS":
                 res = self.ps_executor.execute_template("KILL_PROCESS", params={"ProcessName": str(params.get("process_name", "")), "ProcessId": str(params.get("pid", "")), "ProcessPath": str(params.get("process_path", "")), "ProcessCreatedAt": str(params.get("process_created_at", ""))}, dry_run=dry_run)
+            elif action_type in ("LOCK_LOCAL_ACCOUNT", "UNLOCK_LOCAL_ACCOUNT"):
+                res = self.ps_executor.execute_template(action_type, params={"UserName":str(params.get("user_name","")),
+                    "Domain":str(params.get("domain","")), "LogoutExistingSessions":str(bool(params.get("logout_existing_sessions",False))).lower()}, dry_run=dry_run)
             elif action_type in ("ISOLATE_ENDPOINT", "DISABLE_NETWORK"):
                 res = self.ps_executor.execute_template("NETWORK_ISOLATION", params={"Action": "ISOLATE", "ManagerIP": str(params.get("manager_ip", "127.0.0.1"))}, dry_run=dry_run)
             else:

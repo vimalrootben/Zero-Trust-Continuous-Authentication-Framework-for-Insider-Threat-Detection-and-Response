@@ -20,6 +20,10 @@ def build_command(decision, event, command_id, alert_id, source='MANAGER'):
             raise ValueError('Process response requires PID, name, executable path, and creation time')
         params = {'ProcessName': event.process.name, 'ProcessId': str(event.process.pid),
                   'ProcessPath': event.process.path, 'ProcessCreatedAt': event.process.created_at}
+    elif action in ('LOCK_LOCAL_ACCOUNT','UNLOCK_LOCAL_ACCOUNT'):
+        if not event.user.name:
+            raise ValueError('Local account response requires an exact username')
+        params = {'UserName':event.user.name, 'Domain':event.user.domain or '', 'LogoutExistingSessions':'false'}
     elif action in ('ISOLATE_ENDPOINT', 'DISABLE_NETWORK'):
         params = {'Action': 'ISOLATE', 'ManagerIP': os.environ.get('ZTA_MANAGER_IP', '127.0.0.1')}
     elif action == 'DEMO_SCRIPT':

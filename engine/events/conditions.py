@@ -162,7 +162,7 @@ class RuleValidator:
                   "Defense Evasion", "Credential Access", "Discovery", "Lateral Movement",
                   "Collection", "Exfiltration", "Command and Control", "General", "DEMO"}
     RESPONSE_ACTIONS = {"MONITOR", "ALERT", "NOTIFY_SOC", "LOGOUT_USER", "LOGOFF_USER",
-                        "KILL_PROCESS", "ISOLATE_ENDPOINT"}
+                            "KILL_PROCESS", "LOCK_LOCAL_ACCOUNT", "UNLOCK_LOCAL_ACCOUNT", "ISOLATE_ENDPOINT"}
     LOGIC_TYPES = {"CONDITION_TREE"}
 
     def __init__(self):

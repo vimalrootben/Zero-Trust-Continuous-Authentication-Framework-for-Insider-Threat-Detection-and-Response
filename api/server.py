@@ -92,6 +92,8 @@ SCHEMA_DATA = {
         {"action": "LOGOUT_USER", "label": "LOGOUT_USER", "description": "Terminate active user session via logoff"},
         {"action": "KILL_PROCESS", "label": "KILL_PROCESS", "description": "Terminate suspicious target process"},
         {"action": "ISOLATE_ENDPOINT", "label": "ISOLATE_ENDPOINT", "description": "Isolate host from network except Manager"},
+        {"action": "LOCK_LOCAL_ACCOUNT", "label": "LOCK_LOCAL_ACCOUNT", "description": "Disable a verified local account"},
+        {"action": "UNLOCK_LOCAL_ACCOUNT", "label": "UNLOCK_LOCAL_ACCOUNT", "description": "Restore a previously contained local account"},
     ],
     "policy_modes": [
         {"mode": "ALERT_ONLY", "label": "ALERT_ONLY", "description": "Audit Mode: Records policy trigger without dispatching automated response"},
@@ -810,7 +812,7 @@ class ZTAApiHandler(SimpleHTTPRequestHandler):
                 if not isinstance(payload, dict):
                     raise ValueError("Expected a JSON object")
                 action = payload.get("action")
-                if action not in ("KILL_PROCESS", "ISOLATE_ENDPOINT", "LOGOFF_USER", "LOGOUT_USER"):
+                if action not in ("KILL_PROCESS", "ISOLATE_ENDPOINT", "LOGOFF_USER", "LOGOUT_USER", "LOCK_LOCAL_ACCOUNT", "UNLOCK_LOCAL_ACCOUNT"):
                     self._send_json({"error": "Unsupported action"}, 403)
                     return
                 if not payload.get("agent_id"):
@@ -846,7 +848,7 @@ class ZTAApiHandler(SimpleHTTPRequestHandler):
                 if not isinstance(payload, dict):
                     raise ValueError("Expected a JSON object")
                 action = payload.get("action") or payload.get("action_type")
-                if action not in ("KILL_PROCESS", "ISOLATE_ENDPOINT", "LOGOFF_USER", "LOGOUT_USER", "DEMO_SCRIPT"):
+                if action not in ("KILL_PROCESS", "ISOLATE_ENDPOINT", "LOGOFF_USER", "LOGOUT_USER", "LOCK_LOCAL_ACCOUNT", "UNLOCK_LOCAL_ACCOUNT", "DEMO_SCRIPT"):
                     self._send_json({"error": f"Unsupported action {action}"}, 403)
                     return
                 if not payload.get("agent_id"):

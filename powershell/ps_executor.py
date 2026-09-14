@@ -44,12 +44,14 @@ class PowerShellExecutor:
         "LOGOFF_USER": "logoff_user.ps1",
         "KILL_PROCESS": "kill_process.ps1",
         "NETWORK_ISOLATION": "network_isolation.ps1",
+        "LOCAL_ACCOUNT_CONTROL": "local_account_control.ps1",
     }
 
     PARAMETERS = {
         "LOGOFF_USER": {"UserName", "Domain", "SessionId"},
         "KILL_PROCESS": {"ProcessName", "ProcessId", "ProcessPath", "ProcessCreatedAt", "AgentProcessId"},
         "NETWORK_ISOLATION": {"Action", "ManagerIP"},
+        "LOCAL_ACCOUNT_CONTROL": {"Action", "UserName", "Domain", "LogoutExistingSessions", "AgentAccount"},
     }
 
     # Regex pattern to reject command injection characters (;, |, &, $, `, <, >)
@@ -88,6 +90,8 @@ class PowerShellExecutor:
             "ISOLATE_ENDPOINT": "NETWORK_ISOLATION",
             "DISABLE_NETWORK": "NETWORK_ISOLATION",
             "UNISOLATE_ENDPOINT": "NETWORK_ISOLATION",
+            "LOCK_LOCAL_ACCOUNT": "LOCAL_ACCOUNT_CONTROL",
+            "UNLOCK_LOCAL_ACCOUNT": "LOCAL_ACCOUNT_CONTROL",
         }
         original_action = action_type
         action_type = aliases.get(action_type, action_type)
@@ -107,6 +111,14 @@ class PowerShellExecutor:
                 verification="UNAVAILABLE",
                 dry_run=dry_run,
             )
+        if action_type == 'LOCAL_ACCOUNT_CONTROL':
+            requested = 'UNLOCK' if original_action == 'UNLOCK_LOCAL_ACCOUNT' else 'LOCK'
+            username = params.get('UserName')
+            logout = str(params.get('LogoutExistingSessions','false')).lower()
+            if not isinstance(username,str) or not username or any(c in username for c in '*?\r\n\\') or logout not in ('true','false'):
+                raise InvalidParameterError('Local account control requires an exact local username')
+            params = {**params, 'Action':requested, 'LogoutExistingSessions':logout,
+                      'AgentAccount':os.environ.get('USERNAME','')}
         if action_type == "LOGOFF_USER":
             username, session_id = params.get("UserName"), str(params.get("SessionId", ""))
             if (not isinstance(username, str) or not username.strip()
@@ -163,6 +175,13 @@ class PowerShellExecutor:
                 return PSResult(verified, 'Target process is no longer active' if verified else '',
                                 None if verified else completed.stderr.strip() or 'Process termination was not verified',
                                 completed.returncode, verification='PROCESS_NOT_ACTIVE' if verified else None)
+            if action_type == 'LOCAL_ACCOUNT_CONTROL':
+                expected = ('LOCAL_ACCOUNT_ENABLED','LOCAL_ACCOUNT_RESTORED_DISABLED') if params['Action']=='UNLOCK' else ('LOCAL_ACCOUNT_DISABLED',)
+                verified = completed.returncode == 0 and any(marker in completed.stdout for marker in expected)
+                return PSResult(verified, completed.stdout.strip() if verified else '',
+                                None if verified else completed.stderr.strip() or 'Account state was not verified',
+                                completed.returncode if completed.returncode else (0 if verified else 1),
+                                verification=next((m for m in expected if m in completed.stdout), 'ACCOUNT_STATE_UNVERIFIED'))
             return PSResult(
                 success=(completed.returncode == 0),
                 output=completed.stdout.strip(),
