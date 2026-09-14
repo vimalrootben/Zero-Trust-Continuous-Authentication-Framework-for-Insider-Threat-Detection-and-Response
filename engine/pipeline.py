@@ -62,6 +62,7 @@ def process(engine, event, execution_source='AGENT_ONLINE', synced_at=None):
             match_id = identifier('rm', event.event_id, rule['rule_id'])
             alert_id = identifier('alt', event.event_id, rule['rule_id'])
             match = dict(match_id=match_id, rule_id=rule['rule_id'], rule_code=rule['code'], rule_name=rule['name'],
+                         rule_version=rule.get('current_version', 1),
                          agent_id=agent_id, agent_name=event.agent.name, event_id=event.event_id,
                          severity=rule['severity'], mitre_tactic=rule.get('mitre_tactic'), mitre_technique_id=rule.get('mitre_technique_id'),
                          matched_conditions=trace, condition_result=True, risk_delta=rule['risk_delta'], matched_at=now,
@@ -75,8 +76,8 @@ def process(engine, event, execution_source='AGENT_ONLINE', synced_at=None):
             incident = dict(incident_id=alert_id, agent_id=agent_id, agent_name=event.agent.name, user_name=event.user.name,
                             severity=rule['severity'], risk_score=risk.new_score, trust_score=trust.trust_score, status='OPEN',
                             trigger_reason='Rule matched: '+rule['name'], action_taken='MONITOR', rule_id=rule['rule_id'], rule_code=rule['code'],
-                            rule_name=rule['name'], response_action='MONITOR', response_status='NOT_REQUESTED',
-                            detection_json={'event_id': event.event_id, 'matched_conditions': trace, 'process': event_data['process'], 'user': event_data['user']},
+                            rule_name=rule['name'], rule_version=rule.get('current_version', 1), response_action='MONITOR', response_status='NOT_REQUESTED',
+                            detection_json={'event_id': event.event_id, 'rule_version': rule.get('current_version', 1), 'matched_conditions': trace, 'process': event_data['process'], 'user': event_data['user']},
                             created_at=now, updated_at=now, execution_source=execution_source)
             repo.save_incident(incident)
             repo.save_audit('ALERT_CREATED', rule['name'], agent_id, details={'alert_id': alert_id, 'event_id': event.event_id}, execution_source=execution_source)

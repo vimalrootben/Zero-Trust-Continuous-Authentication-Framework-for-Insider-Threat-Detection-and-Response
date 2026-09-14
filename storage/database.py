@@ -15,6 +15,10 @@ from zta.engine.risk.engine import RiskEvent
 from zta.engine.trust.engine import TrustState
 
 
+class RuleDependencyError(ValueError):
+    """Raised when a rule is still referenced by an active definition."""
+
+
 class _TransactionView:
     def __init__(self, conn): self.conn = conn
     def __getattr__(self, name): return getattr(self.conn, name)
@@ -363,10 +367,22 @@ class ZTADatabase:
                 ("agents", "manager_observed_ip", "TEXT"),
                 ("agents", "interfaces_json", "TEXT"),
                 ("rules", "is_demo", "INTEGER DEFAULT 0"),
+                ("rules", "current_version", "INTEGER NOT NULL DEFAULT 1"),
                 ("rule_matches", "is_demo", "INTEGER DEFAULT 0"),
+                ("rule_matches", "rule_version", "INTEGER"),
                 ("incidents", "is_demo", "INTEGER DEFAULT 0"),
+                ("incidents", "rule_version", "INTEGER"),
             ]:
                 self._ensure_column(cursor, table, column, definition)
+            cursor.execute("""CREATE TABLE IF NOT EXISTS rule_versions (
+                rule_id TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                definition_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                created_by TEXT NOT NULL,
+                change_type TEXT NOT NULL,
+                PRIMARY KEY(rule_id, version)
+            )""")
             cursor.execute("CREATE TABLE IF NOT EXISTS rule_evaluations (evaluation_id TEXT PRIMARY KEY, event_id TEXT NOT NULL, rule_id TEXT NOT NULL, agent_id TEXT NOT NULL, result INTEGER NOT NULL, trace_json TEXT NOT NULL, timestamp TEXT NOT NULL, execution_source TEXT NOT NULL)")
             cursor.execute("CREATE TABLE IF NOT EXISTS sync_receipts (agent_id TEXT NOT NULL, batch_id TEXT NOT NULL, payload_hash TEXT NOT NULL, response_json TEXT NOT NULL, PRIMARY KEY(agent_id,batch_id))")
             cursor.execute("""CREATE TABLE IF NOT EXISTS agent_logs (
@@ -390,6 +406,13 @@ class ZTADatabase:
             if self.seed_defaults and not cursor.execute("SELECT 1 FROM schema_migrations WHERE version='content-bootstrap'").fetchone():
                 self._seed_default_data(conn)
                 cursor.execute("INSERT INTO schema_migrations VALUES ('content-bootstrap',?)", (datetime.now(timezone.utc).isoformat(),))
+            for row in cursor.execute("SELECT * FROM rules").fetchall():
+                definition = ZTARepository.rule_definition(dict(row))
+                cursor.execute(
+                    "INSERT OR IGNORE INTO rule_versions VALUES (?, 1, ?, ?, 'migration', 'BASELINE')",
+                    (row["rule_id"], json.dumps(definition), row["created_at"]),
+                )
+            cursor.execute("INSERT OR IGNORE INTO schema_migrations VALUES ('20260914-rule-version-history', ?)", (datetime.now(timezone.utc).isoformat(),))
             conn.commit()
 
     def _ensure_column(self, cursor: sqlite3.Cursor, table_name: str, column_name: str, col_def: str):
@@ -516,6 +539,38 @@ class ZTADatabase:
 class ZTARepository:
     """Repository providing CRUD operations for ZTA entities."""
 
+    RULE_DEFINITION_FIELDS = (
+        "rule_id", "code", "name", "category", "severity", "mitre_tactic",
+        "mitre_technique_id", "risk_delta", "condition_json", "response_action",
+        "logic_type", "enabled", "allow_offline", "created_at",
+    )
+
+    @classmethod
+    def rule_definition(cls, rule: Dict[str, Any]) -> Dict[str, Any]:
+        return {field: rule.get(field) for field in cls.RULE_DEFINITION_FIELDS}
+
+    def _save_rule_version(self, conn, rule: Dict[str, Any], version: int, actor: str, change_type: str):
+        conn.execute(
+            "INSERT INTO rule_versions VALUES (?, ?, ?, ?, ?, ?)",
+            (rule["rule_id"], version, json.dumps(self.rule_definition(rule)),
+             datetime.now(timezone.utc).isoformat(), actor, change_type),
+        )
+
+    def get_rule_versions(self, rule_id: str) -> List[Dict[str, Any]]:
+        rule = self.get_rule_by_id(rule_id)
+        if not rule:
+            return []
+        with self.db.get_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM rule_versions WHERE rule_id=? ORDER BY version DESC",
+                (rule["rule_id"],),
+            ).fetchall()
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["definition"] = json.loads(item.pop("definition_json"))
+            result.append(item)
+        return result
     def __init__(self, db: ZTADatabase):
         self.db = db
 
@@ -729,6 +784,8 @@ class ZTARepository:
                     allow_offline, now_iso,
                 ),
             )
+            created = dict(conn.execute("SELECT * FROM rules WHERE rule_id=?", (rule_id,)).fetchone())
+            self._save_rule_version(conn, created, 1, actor, "CREATE")
             conn.commit()
 
         self.save_audit(
@@ -777,21 +834,25 @@ class ZTARepository:
 
         cond = update_data.get("condition")
         cond_json = json.dumps(cond) if cond is not None and not isinstance(cond, str) else (cond or rule.get("condition_json", "{}"))
+        next_version = int(rule.get("current_version") or 1) + 1
 
         with self.db.get_connection() as conn:
             conn.execute(
                 """
                 UPDATE rules SET
                     name = ?, category = ?, severity = ?, mitre_tactic = ?, mitre_technique_id = ?,
-                    risk_delta = ?, condition_json = ?, response_action = ?, enabled = ?, allow_offline = ?
+                    risk_delta = ?, condition_json = ?, response_action = ?, enabled = ?, allow_offline = ?,
+                    current_version = ?
                 WHERE rule_id = ? OR code = ?
                 """,
                 (
                     name, category, severity, mitre_tactic, mitre_technique_id,
-                    risk_delta, cond_json, response_action, enabled, allow_offline,
+                    risk_delta, cond_json, response_action, enabled, allow_offline, next_version,
                     rule["rule_id"], rule["code"],
                 ),
             )
+            updated = dict(conn.execute("SELECT * FROM rules WHERE rule_id=?", (rule["rule_id"],)).fetchone())
+            self._save_rule_version(conn, updated, next_version, actor, "UPDATE")
             conn.commit()
 
         self.save_audit(
@@ -825,12 +886,15 @@ class ZTARepository:
             candidate["enabled"] = True
             RuleValidator().validate(candidate)
         val = 1 if new_status else 0
+        next_version = int(rule.get("current_version") or 1) + 1
 
         with self.db.get_connection() as conn:
             conn.execute(
-                "UPDATE rules SET enabled = ? WHERE rule_id = ? OR code = ?",
-                (val, rule["rule_id"], rule["code"]),
+                "UPDATE rules SET enabled = ?, current_version = ? WHERE rule_id = ? OR code = ?",
+                (val, next_version, rule["rule_id"], rule["code"]),
             )
+            updated = dict(conn.execute("SELECT * FROM rules WHERE rule_id=?", (rule["rule_id"],)).fetchone())
+            self._save_rule_version(conn, updated, next_version, actor, "TOGGLE")
             conn.commit()
 
         audit_type = "RULE_ENABLED" if new_status else "RULE_DISABLED"
@@ -872,6 +936,11 @@ class ZTARepository:
                 (rule["rule_id"], rule["code"]),
             ).fetchone()[0]
 
+            if p_count:
+                raise RuleDependencyError(
+                    f"Rule is linked to {p_count} policy definition(s); remove or relink them before deletion"
+                )
+
             # Delete the rule definition
             conn.execute("DELETE FROM rules WHERE rule_id = ? OR code = ?", (rule["rule_id"], rule["code"]))
             conn.commit()
@@ -903,6 +972,46 @@ class ZTARepository:
             "linked_policies_count": p_count,
         }
 
+    def rollback_rule(self, rule_id: str, version: int, actor: str = "admin", role: str = "admin") -> Optional[Dict[str, Any]]:
+        """Restores a historical definition as a new version without changing identifiers."""
+        rule = self.get_rule_by_id(rule_id)
+        if not rule:
+            return None
+        if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+            raise ValueError("version must be a positive integer")
+        with self.db.get_connection() as conn:
+            row = conn.execute(
+                "SELECT definition_json FROM rule_versions WHERE rule_id=? AND version=?",
+                (rule["rule_id"], version),
+            ).fetchone()
+            if not row:
+                raise ValueError(f"Rule version {version} not found")
+            definition = json.loads(row["definition_json"])
+            definition["rule_id"] = rule["rule_id"]
+            definition["code"] = rule["code"]
+            definition["created_at"] = rule["created_at"]
+            definition["condition"] = json.loads(definition.get("condition_json") or "{}")
+            RuleValidator().validate(definition)
+            next_version = int(rule.get("current_version") or 1) + 1
+            conn.execute(
+                """UPDATE rules SET name=?, category=?, severity=?, mitre_tactic=?, mitre_technique_id=?,
+                   risk_delta=?, condition_json=?, response_action=?, logic_type=?, enabled=?, allow_offline=?, current_version=?
+                   WHERE rule_id=?""",
+                tuple(definition.get(field) for field in (
+                    "name", "category", "severity", "mitre_tactic", "mitre_technique_id", "risk_delta",
+                    "condition_json", "response_action", "logic_type", "enabled", "allow_offline",
+                )) + (next_version, rule["rule_id"]),
+            )
+            restored = dict(conn.execute("SELECT * FROM rules WHERE rule_id=?", (rule["rule_id"],)).fetchone())
+            self._save_rule_version(conn, restored, next_version, actor, "ROLLBACK")
+            conn.commit()
+        self.save_audit(
+            "RULE_ROLLED_BACK", f"Rule {rule['code']} restored from version {version}", f"{role}:{actor}",
+            details={"rule_id": rule["rule_id"], "source_version": version, "new_version": next_version},
+            execution_source="MANAGER",
+        )
+        return self.get_rule_by_id(rule["rule_id"])
+
     def get_linked_policies(self, rule_id: str) -> List[Dict[str, Any]]:
         """Retrieves all policies linked to a rule by ID or code."""
         with self.db.get_connection() as conn:
@@ -932,8 +1041,8 @@ class ZTARepository:
                     match_id, rule_id, rule_code, rule_name, agent_id, agent_name,
                     event_id, severity, mitre_tactic, mitre_technique_id,
                     matched_conditions_json, condition_result, risk_delta,
-                    matched_at, alert_id, policy_id, execution_source, is_demo
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    matched_at, alert_id, policy_id, execution_source, is_demo, rule_version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     match["match_id"],
@@ -954,6 +1063,7 @@ class ZTARepository:
                     match.get("policy_id"),
                     match.get("execution_source", "AGENT_ONLINE"),
                     1 if match.get("is_demo") or str(match.get("rule_code", "")).startswith("DEMO-") else 0,
+                    match.get("rule_version"),
                 ),
             )
             # Increment rule total_matches and update last_matched
@@ -1369,8 +1479,8 @@ class ZTARepository:
                     risk_score, trust_score, status, trigger_reason, action_taken,
                     rule_id, rule_code, rule_name, policy_id, policy_name,
                     response_action, response_status, detection_json,
-                    created_at, updated_at, execution_source, is_demo
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    created_at, updated_at, execution_source, is_demo, rule_version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     incident["incident_id"],
@@ -1395,6 +1505,7 @@ class ZTARepository:
                     incident.get("updated_at", datetime.now(timezone.utc).isoformat()),
                     incident.get("execution_source", "AGENT_ONLINE"),
                     1 if incident.get("is_demo") or str(incident.get("rule_code", "")).startswith("DEMO-") else 0,
+                    incident.get("rule_version"),
                 ),
             )
             conn.commit()

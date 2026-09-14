@@ -7,7 +7,7 @@
 - `engine/`: canonical pipeline: correlation -> rule matching -> risk/trust update -> policy decision -> response command.
 - Rule definitions pass one shared validator at API preview, repository create/update, and disabled-to-enabled activation boundaries.
 - Regex conditions use a timeout-capable engine with bounded pattern/input sizes; timeout and limit outcomes are recorded in evaluation traces instead of blocking workers.
-- `storage/`: SQLite schema/repository for agents, events, rules, policies, incidents, commands, audit, and retry state.
+- `storage/`: SQLite schema/repository for agents, events, versioned rules, policies, incidents, commands, audit, and retry state. Rule changes append immutable snapshots; rollback copies a snapshot into a new current version.
 - `dashboard/`: static operator UI served by the manager; reads `/api/zta/*` and subscribes to `/api/zta/ws`.
 - `powershell/`: validated Windows response handlers; `ruleset/` supplies default rules/policies.
 - Launchers: `zta_manager.py` starts dashboard/API ports sharing one runtime; `zta_agent.py` starts an endpoint agent.
@@ -16,7 +16,7 @@
 
 1. Agent collector -> `ZTAEventAdapter` -> canonical `ZTAEvent` -> durable local queue.
 2. Online agent posts heartbeat and telemetry to manager; offline agent evaluates only signed, cached, offline-approved rules/policies.
-3. Manager persists input, runs the unified pipeline, updates risk/trust, creates incidents and commands, then broadcasts updates.
+3. Manager persists input, runs the unified pipeline, updates risk/trust, creates incidents and commands stamped with the matching rule version, then broadcasts updates.
 4. Heartbeat returns signed configuration and pending commands. Agent validates identity/signature, executes an allowlisted action, journals the result, and reports it.
 5. Reconnect sync uploads queued records with explicit acknowledgements; only acknowledged IDs are removed.
 

@@ -27,7 +27,7 @@ from zta.engine.events.wazuh_adapter import ZTAEventAdapter
 from zta.engine.policy.engine import PolicyDecision, ZTAPolicy, ZTAPolicyEngine
 from zta.engine.risk.engine import ZTARiskEngine
 from zta.engine.trust.engine import ZTATrustEngine
-from zta.storage.database import ZTADatabase, ZTARepository
+from zta.storage.database import RuleDependencyError, ZTADatabase, ZTARepository
 
 logger = logging.getLogger("ZTAManager")
 
@@ -555,6 +555,13 @@ class ZTAApiHandler(SimpleHTTPRequestHandler):
             self._send_json({"events": self.repo.get_recent_events(limit)})
         elif path == "/api/zta/rules":
             self._send_json({"rules": self.repo.get_rules()})
+        elif path.startswith("/api/zta/rules/") and path.endswith("/versions"):
+            rule_id = path.split("/")[-2]
+            versions = self.repo.get_rule_versions(rule_id)
+            if versions:
+                self._send_json({"versions": versions})
+            else:
+                self._send_json({"error": "Rule not found"}, 404)
         elif path.startswith("/api/zta/rules/"):
             rule_id = path.split("/")[-1]
             rule = self.repo.get_rule_by_id(rule_id)
@@ -904,6 +911,18 @@ class ZTAApiHandler(SimpleHTTPRequestHandler):
                 self.hub.broadcast("rule.toggled", {"rule": rule})
                 self._send_json({"status": "UPDATED", "rule": rule})
 
+            elif path.startswith("/api/zta/rules/") and path.endswith("/rollback"):
+                if not self._check_rbac("ADMIN"):
+                    return
+                rule_id = path.split("/")[-2]
+                rule = self.repo.rollback_rule(rule_id, payload.get("version"), actor=self._actor, role=self._role)
+                if not rule:
+                    self._send_json({"error": "Rule not found"}, 404)
+                    return
+                self.engine._reload_rules()
+                self.hub.broadcast("rule.rolled_back", {"rule": rule})
+                self._send_json({"status": "ROLLED_BACK", "rule": rule})
+
             elif path == "/api/zta/policies/validate":
                 cond = payload.get("condition")
                 try:
@@ -1037,6 +1056,8 @@ class ZTAApiHandler(SimpleHTTPRequestHandler):
                     self.engine._reload_rules()
                     self.hub.broadcast("rule.deleted", {"rule_id": rule_id})
                     self._send_json(res)
+                except RuleDependencyError as e:
+                    self._send_json({"error": str(e)}, 409)
                 except ValueError as e:
                     self._send_json({"error": str(e)}, 404)
 

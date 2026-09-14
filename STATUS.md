@@ -16,16 +16,19 @@ Current review (2026-09-14): regex branch passes 142 tests after propagating eva
 - Provisioned the named runtime operator `admin` with role `ADMIN`; password login was verified. Credentials are stored in ignored `admin-credentials.env` with a restricted Windows ACL.
 - Added centralized validation that blocks invalid rule creation, updates, and reactivation without changing valid stored rules.
 - Bounded regex matching to 4096 input characters and 25 ms, with explicit timeout/limit evidence in condition traces.
+- Added immutable rule definition history, rollback-as-new-version, linked-policy deletion protection, and version-stamped match/incident evidence.
+- Started the live manager (PID `24580`) and `agent-local` (PID `19328`) using authenticated process-local agent credentials; dashboard and agent API listen on ports 8000/8080.
 
 ## Source state
 
 - Baseline commit: `a2fc14e` (`chore: establish imported project baseline`).
 - Baseline tag: `baseline-2026-09-13` (annotated).
-- Current implementation commit: `00e85d2ec60d1f53219096be64365a31a5866467`; branch: `fix/rule-activation-validation`.
+- Current implementation commit: `8ef1125e39c84ecdac45fa74f334bbfcc9711952`; branch: `feat/rule-version-rollback`.
 - Git executable: `C:\Program Files\Git\cmd\git.exe`; repository-local author is `Codex Agent <codex@local>`.
 - Access-control base commit: `7f0ad172c49355aa85b742345fecfccc30da182d`; branch: `feat/permission-access`.
 - Rule-validation base commit: `cb634cf9a1588f5a142ea8a51a3ce1f7983a548c`; branch: `fix/rule-activation-validation`.
 - Regex-cost base commit: `1ae3ce7eed605abbc711a710a0f5acd17e920dd4`; branch: `fix/regex-evaluation-cost`.
+- Rule-version base commit: `2deb54e97d54981f0d95a42141a9bdd382ee3507`; branch: `feat/rule-version-rollback`.
 - Runtime artifacts created during smoke test: `.venv/`, `zta_runtime.db`, `storage/zta_agent_local.db`, and manager/agent log files.
 
 ## Tests
@@ -38,12 +41,14 @@ Current review (2026-09-14): regex branch passes 142 tests after propagating eva
 - Rule/condition focused regression: `58 passed, 1 warning in 17.70s`.
 - Full rule compatibility regression: `129 passed, 1 warning in 52.25s`.
 - Regex/rule focused regression: `61 passed in 17.68s`; full regression: `132 passed in 53.59s`.
+- Rule-version focused regression: `22 passed in 15.23s`; full regression: `134 passed in 45.11s`. Unrestricted execution was required because sandboxed pytest temp-directory creation was denied.
 - The original long-path `.venv` could not load the `regex` extension DLL; verification used `C:\Users\vegeta\zta-venv` successfully.
 - JavaScript `node --check` unavailable because Node.js is not installed; dashboard integration/assets are covered by the passing Python suite.
 - Discovery: 113 tests collected.
 - Baseline: 48 passed, 65 setup errors in 2.82s; errors are `PermissionError [WinError 5]` creating pytest temp/cache directories, so this is not a valid code-failure baseline.
 - Warning: Requests reports no acceptable character-detection dependency under the current Python 3.14.7 environment.
 - Runtime limitation: Sysmon channel was absent (exit 15007) and Security log access was denied (exit 5); heartbeats still succeeded.
+- Live verification: dashboard `GET /` returned HTTP 200; authenticated heartbeat returned HTTP 200 and offline sync returned HTTP 201. The old offline cache signature is invalid under the fresh process-local token and was safely rejected.
 
 ## Next task
 
