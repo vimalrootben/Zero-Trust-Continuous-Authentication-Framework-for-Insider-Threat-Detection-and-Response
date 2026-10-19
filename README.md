@@ -145,25 +145,57 @@ A lightweight, high-performance Zero Trust Endpoint Detection & Response (EDR) p
 
 ### 2. Install & Start Manager
 
+#### On Windows (PowerShell):
+```powershell
+# 1. Install dependencies
+pip install -r requirements.txt
+
+# 2. Start the unified manager (Starts Dashboard on 8000 & Agent API on 8080)
+python dashboard/run_dashboard.py --port 8000 --api-port 8080 --db zta_runtime.db
+# or via module entry point:
+python -m zta --port 8000 --api-port 8080 --db zta_runtime.db
+```
+
+#### On Linux / macOS (Bash):
 ```bash
-# Set up virtual environment and install dependencies
+# 1. Set up virtual environment and install dependencies
 bash install-zta.sh
 
-# Run the unified manager (starts dashboard and agent API)
+# 2. Run the unified manager (starts dashboard and agent API)
 .venv/bin/python -m zta --port 8000 --api-port 8080 --db zta_runtime.db
 ```
 
-- **Dashboard UI**: `http://127.0.0.1:8000`
-- **Agent API & Ingestion**: `http://127.0.0.1:8080`
+### 3. Accessing the SOC Dashboard
+
+Once started, open your web browser:
+- **Dashboard UI**: [http://127.0.0.1:8000](http://127.0.0.1:8000)
+- **Agent API & Ingestion**: [http://127.0.0.1:8080](http://127.0.0.1:8080)
 - **WebSocket Feed**: `ws://127.0.0.1:8000/api/zta/ws`
 
-Both services share the underlying background worker, SQLite database, and real-time WebSocket hub.
+#### Default Operator Credentials
+Sign in to the SOC Dashboard using the authorized operator credentials (defined in `admin-credentials.env`):
+- **Username**: `admin`
+- **Password**: `Admin@12345678`
+- **RBAC Role**: `ADMIN` (Full Control)
 
-### 3. Environment Variables
+*Additional built-in test operator roles:*
+- `vimal` (`SOC_ANALYST`)
+- `sethu` (`AUDITOR`)
 
-Configure manager security credentials in the service environment:
+### 4. Running the Endpoint Agent Locally (Optional / Testing)
 
-- `ZTA_ADMIN_TOKEN`: Administrator bearer token for rule/policy mutations and manual command dispatches.
+To run a local endpoint agent communicating with your local manager:
+
+```powershell
+python -m agent --manager-url http://127.0.0.1:8080 --agent-id agent-local-01 --token secret
+```
+
+### 5. Environment Variables (Optional)
+
+Configure manager security credentials in your environment or `.env`:
+
+- `ZTA_DB_PATH`: SQLite database path (default: `zta_runtime.db`).
+- `ZTA_ADMIN_TOKEN`: Administrator bearer token for API automation and manual command dispatches.
 - `ZTA_AGENT_TOKENS`: JSON string mapping each provisioned Agent ID to its secret token (e.g. `{"agent-01": "secret-token-123"}`).
 - `ZTA_RISK_DECAY_PER_MINUTE`: Decay rate per minute for accumulated risk scores (default: `1.0`).
 
@@ -276,18 +308,21 @@ Background Worker Dispatcher
 The platform includes an automated regression test suite covering all engines, agents, PowerShell handlers, and dashboard APIs:
 
 ```bash
-# Run complete test suite (113 tests)
-PYTHONPATH=. .venv/bin/pytest -q
+# Run complete test suite (217 tests across all subsystems)
+pytest tests/
+# or with python -m:
+python -m pytest tests/
 
 # Validate Dashboard JavaScript syntax
 node --check dashboard/assets/dashboard.js
 
 # Compile all Python source files
-python3 -m compileall -q . -x '\.venv'
+python -m compileall -q .
 ```
 
 For detailed background completion reports and Windows endpoint verification procedures, refer to:
 - [docs/BACKGROUND_COMPLETION_REPORT.md](docs/BACKGROUND_COMPLETION_REPORT.md)
 - [docs/WINDOWS_VALIDATION.md](docs/WINDOWS_VALIDATION.md)
 - [docs/ZTA_DATA_FLOW.md](docs/ZTA_DATA_FLOW.md)
-update...
+- [TASK_12_DASHBOARD_FIX_CHECKLIST.md](TASK_12_DASHBOARD_FIX_CHECKLIST.md)
+

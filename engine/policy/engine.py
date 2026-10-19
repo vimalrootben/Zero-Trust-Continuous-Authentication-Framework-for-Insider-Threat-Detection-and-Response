@@ -9,7 +9,9 @@ from uuid import uuid4
 from zta.engine.events.conditions import ConditionEvaluator
 
 
-POLICY_ACTIONS = {"MONITOR", "ALERT", "NOTIFY_SOC", "LOGOUT_USER", "LOGOFF_USER", "KILL_PROCESS", "LOCK_LOCAL_ACCOUNT", "UNLOCK_LOCAL_ACCOUNT", "ISOLATE_ENDPOINT"}
+POLICY_ACTIONS = {"MONITOR", "ALERT", "NOTIFY_SOC", "LOGOUT_USER", "LOGOFF_USER", "KILL_PROCESS",
+                  "LOCK_LOCAL_ACCOUNT", "UNLOCK_LOCAL_ACCOUNT", "ISOLATE_ENDPOINT", "UNISOLATE_ENDPOINT",
+                  "LOCK_WORKSTATION", "QUARANTINE_FILE"}
 POLICY_MODES = {"ALERT_ONLY", "ENFORCE"}
 POLICY_SEVERITIES = {"LOW", "MEDIUM", "HIGH", "CRITICAL"}
 
@@ -33,7 +35,7 @@ class PolicyValidator:
                 raise ValueError(f"{field} must be a string up to 1000 characters")
         if policy.get("severity", "HIGH") not in POLICY_SEVERITIES:
             raise ValueError("Unknown policy severity")
-        if policy.get("mode", "ENFORCE") not in POLICY_MODES:
+        if policy.get("mode", "ALERT_ONLY") not in POLICY_MODES:
             raise ValueError("Unknown policy mode")
         if policy.get("action", "MONITOR") not in POLICY_ACTIONS:
             raise ValueError("Unknown policy action")
@@ -80,7 +82,7 @@ class PolicyDecision:
     trigger_trust_score: int
     policy_id: Optional[str] = None
     policy_code: Optional[str] = None
-    mode: str = "ENFORCE"  # ALERT_ONLY vs ENFORCE
+    mode: str = "ALERT_ONLY"  # ALERT_ONLY vs ENFORCE
     evaluation_result: str = "TRIGGERED"
     triggered: bool = True
     condition_trace: Optional[Dict[str, Any]] = None
@@ -101,7 +103,7 @@ class ZTAPolicy:
     severity: str = "HIGH"
     rule_id: Optional[str] = None
     risk_threshold: int = 85
-    mode: str = "ENFORCE"  # ALERT_ONLY or ENFORCE
+    mode: str = "ALERT_ONLY"  # ALERT_ONLY or ENFORCE
     condition: Optional[Dict[str, Any]] = None
     allow_offline: bool = False
     priority: int = 1000

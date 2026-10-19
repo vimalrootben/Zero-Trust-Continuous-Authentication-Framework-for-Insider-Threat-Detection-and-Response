@@ -4,6 +4,7 @@ const $ = id => document.getElementById(id);
 const state = {
   events: [], agents: [], incidents: [], rules: [], policies: [],
   timeline: [], auditLogs: [], services: [], overview: {}, listeningPorts: [], processes: [], sessions: [], commands: [], scripts: [],
+  mitreTechniques: [], threatIndicators: [], reports: [], users: [], settings: [],
   schema: null,
   view: 'dashboard', rulesPoliciesSubtab: 'rules',
   page: 0, rows: [], loading: false, ws: null,
@@ -11,6 +12,131 @@ const state = {
   ruleBuilderTree: null,
   policyBuilderTree: null,
   activeDeleteTarget: null // { type: 'rule' | 'policy', id: string, name: string }
+};
+
+const VIEW_TITLES = {
+  dashboard: 'Overview', agents: 'Endpoint Inventory', events: 'Security Events',
+  rules: 'Rules', policies: 'Policies', incidents: 'Alerts & Incidents',
+  timeline: 'Unified Timeline', mitre: 'MITRE ATT&CK', threat_intel: 'Threat Intelligence',
+  reports: 'Reports', users: 'Users', settings: 'Settings', audit: 'Audit Log',
+  services: 'Background Services'
+};
+const VALID_VIEWS = new Set(Object.keys(VIEW_TITLES));
+
+function currentRoute() {
+  return state.view === 'rules_policies' ? state.rulesPoliciesSubtab : state.view;
+}
+
+function routeFromLocation() {
+  const requested = new URLSearchParams(location.search).get('view') || 'dashboard';
+  return VALID_VIEWS.has(requested) ? requested : 'dashboard';
+}
+
+// ----------------------------------------------------------------------
+// CENTRALIZED MODAL CONTROLLER
+// ----------------------------------------------------------------------
+const ModalController = {
+  lastFocusedElement: null,
+
+  open(dialogId, triggerEl = null) {
+    const dialog = $(dialogId);
+    if (!dialog) return;
+
+    // Save previous active focus if not within another dialog
+    if (triggerEl) {
+      this.lastFocusedElement = triggerEl;
+    } else if (document.activeElement && !document.activeElement.closest('dialog')) {
+      this.lastFocusedElement = document.activeElement;
+    }
+
+    // Requirement: Only one modal open at a time; close all other open dialogs
+    document.querySelectorAll('dialog[open]').forEach(d => {
+      if (d !== dialog) {
+        try { d.close(); } catch (_) { d.removeAttribute('open'); }
+      }
+    });
+
+    try {
+      if (typeof dialog.showModal === 'function') {
+        if (!dialog.open) dialog.showModal();
+      } else {
+        dialog.setAttribute('open', '');
+      }
+    } catch (_) {
+      dialog.setAttribute('open', '');
+    }
+
+    // Set focus into the modal
+    const focusTarget = dialog.querySelector('input:not([type="hidden"]), select, textarea, button:not(.close-btn)') || dialog.querySelector('button');
+    if (focusTarget) setTimeout(() => focusTarget.focus(), 50);
+  },
+
+  close(dialogId) {
+    const dialog = typeof dialogId === 'string' ? $(dialogId) : dialogId;
+    if (!dialog) return;
+    try {
+      if (dialog.open && typeof dialog.close === 'function') {
+        dialog.close();
+      } else {
+        dialog.removeAttribute('open');
+      }
+    } catch (_) {
+      dialog.removeAttribute('open');
+    }
+
+    // Restore focus to last active trigger
+    if (this.lastFocusedElement && typeof this.lastFocusedElement.focus === 'function') {
+      try { this.lastFocusedElement.focus(); } catch (_) {}
+      this.lastFocusedElement = null;
+    }
+  },
+
+  closeAll() {
+    document.querySelectorAll('dialog[open]').forEach(d => this.close(d));
+  },
+
+  init() {
+    // Ensure all dialogs are explicitly closed on initial load
+    document.querySelectorAll('dialog').forEach(dialog => {
+      try {
+        if (dialog.open) dialog.close();
+      } catch (_) {}
+      dialog.removeAttribute('open');
+
+      // Requirement 7: Click on backdrop closes dismissible dialog
+      dialog.addEventListener('click', event => {
+        const rect = dialog.getBoundingClientRect();
+        const isInDialog = (
+          rect.top <= event.clientY &&
+          event.clientY <= rect.top + rect.height &&
+          rect.left <= event.clientX &&
+          event.clientX <= rect.left + rect.width
+        );
+        if (!isInDialog) {
+          ModalController.close(dialog);
+        }
+      });
+
+      // Requirement 11: Return focus on native cancel or close event
+      dialog.addEventListener('close', () => {
+        if (ModalController.lastFocusedElement && typeof ModalController.lastFocusedElement.focus === 'function') {
+          try { ModalController.lastFocusedElement.focus(); } catch (_) {}
+          ModalController.lastFocusedElement = null;
+        }
+      });
+    });
+
+    // Requirement 6: Escape key closes any open dialog
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape') {
+        const openDialog = document.querySelector('dialog[open]');
+        if (openDialog) {
+          event.preventDefault();
+          ModalController.close(openDialog);
+        }
+      }
+    });
+  }
 };
 
 async function apiFetch(url, options = {}) {
@@ -22,6 +148,7 @@ async function apiFetch(url, options = {}) {
 }
 
 function lockDashboard(message = '') {
+  ModalController.closeAll();
   sessionStorage.removeItem('ztaAccessToken');
   state.adminToken = null; state.role = null; state.permissions = [];
   if (state.ws) { state.ws.onclose = null; state.ws.close(); state.ws = null; }
@@ -41,6 +168,9 @@ function unlockDashboard(identity) {
   $('clear-database').hidden = state.role !== 'ADMIN';
   $('change-password').hidden = Boolean(identity.legacy);
   $('sign-out').hidden = false;
+  document.querySelectorAll('[data-view="users"]').forEach(el => { el.hidden = !state.permissions.includes('users:manage'); });
+  document.querySelectorAll('[data-view="audit"], [data-view="reports"]').forEach(el => { el.hidden = !state.permissions.includes('audit:read'); });
+  $('live-agent-controls').hidden = !state.permissions.includes('response:write');
   $('login-page').hidden = true;
   $('app-shell').hidden = false;
   document.body.classList.remove('auth-pending');
@@ -425,7 +555,7 @@ function openCreateRuleModal() {
     createLeafCondition('process.name', 'contains', 'powershell.exe')
   ]);
   mountConditionBuilder(state.ruleBuilderTree, 'rb-condition-tree-root', 'rb-validate-status');
-  $('rule-builder-modal').showModal();
+  ModalController.open('rule-builder-modal', $('btn-create-rule'));
 }
 
 function openEditRuleModal(rule) {
@@ -450,7 +580,7 @@ function openEditRuleModal(rule) {
 
   state.ruleBuilderTree = conditionToTree(rule.condition);
   mountConditionBuilder(state.ruleBuilderTree, 'rb-condition-tree-root', 'rb-validate-status');
-  $('rule-builder-modal').showModal();
+  ModalController.open('rule-builder-modal');
 }
 
 async function validateRuleCondition() {
@@ -543,7 +673,7 @@ async function saveRule(e) {
     if (!res.ok) throw new Error(result.error || `HTTP ${res.status}`);
 
     showToast(`Rule ${payload.code} saved successfully. Engine reloaded.`, 'success');
-    $('rule-builder-modal').close();
+    ModalController.close('rule-builder-modal');
     await refresh();
   } catch (err) {
     showToast(`Failed to save rule: ${err.message}`, 'error');
@@ -609,7 +739,7 @@ function openRuleDetails(rule) {
     `).join('');
     linkedList.querySelectorAll('[data-view-linked-policy]').forEach(btn => {
       btn.onclick = () => {
-        $('rule-details-modal').close();
+        ModalController.close('rule-details-modal');
         const pol = state.policies.find(p => p.policy_id === btn.dataset.viewLinkedPolicy);
         if (pol) openPolicyDetails(pol);
       };
@@ -642,11 +772,12 @@ function openRuleDetails(rule) {
   }
 
   $('rd-btn-edit').onclick = () => {
-    $('rule-details-modal').close();
+    ModalController.close('rule-details-modal');
     openEditRuleModal(rule);
   };
+  $('rd-btn-edit').hidden = state.role !== 'ADMIN';
 
-  $('rule-details-modal').showModal();
+  ModalController.open('rule-details-modal');
 }
 
 // ----------------------------------------------------------------------
@@ -665,13 +796,14 @@ function openCreatePolicyModal() {
   $('pb-desc').value = '';
   $('pb-category').value = 'General';
   $('pb-severity').value = 'HIGH';
-  $('pb-mode').value = 'ENFORCE';
+  $('pb-mode').value = 'ALERT_ONLY';
   $('pb-enabled').checked = true;
   $('pb-action').value = 'MONITOR';
   updatePolicyActionHint();
 
   $('pb-min-risk').value = '85';
   $('pb-max-risk').value = '100';
+  $('pb-risk-threshold').value = '85';
   $('pb-priority').value = '1000';
   $('pb-allow-offline').checked = false;
 
@@ -684,7 +816,7 @@ function openCreatePolicyModal() {
 
   state.policyBuilderTree = createGroupCondition('all', []);
   mountConditionBuilder(state.policyBuilderTree, 'pb-condition-tree-root', 'pb-validate-status');
-  $('policy-builder-modal').showModal();
+  ModalController.open('policy-builder-modal', $('btn-create-policy'));
 }
 
 function openEditPolicyModal(policy) {
@@ -700,13 +832,14 @@ function openEditPolicyModal(policy) {
   $('pb-desc').value = policy.description || '';
   $('pb-category').value = policy.category || 'General';
   $('pb-severity').value = policy.severity || 'HIGH';
-  $('pb-mode').value = policy.mode || 'ENFORCE';
+  $('pb-mode').value = policy.mode || 'ALERT_ONLY';
   $('pb-enabled').checked = Boolean(policy.enabled);
   $('pb-action').value = policy.action || 'MONITOR';
   updatePolicyActionHint();
 
   $('pb-min-risk').value = policy.min_risk !== undefined ? policy.min_risk : 85;
   $('pb-max-risk').value = policy.max_risk !== undefined ? policy.max_risk : 100;
+  $('pb-risk-threshold').value = policy.risk_threshold !== undefined ? policy.risk_threshold : 85;
   $('pb-priority').value = policy.priority !== undefined ? policy.priority : 1000;
   $('pb-allow-offline').checked = Boolean(policy.allow_offline);
 
@@ -719,7 +852,7 @@ function openEditPolicyModal(policy) {
 
   state.policyBuilderTree = conditionToTree(policy.condition);
   mountConditionBuilder(state.policyBuilderTree, 'pb-condition-tree-root', 'pb-validate-status');
-  $('policy-builder-modal').showModal();
+  ModalController.open('policy-builder-modal');
 }
 
 function updatePolicyActionHint() {
@@ -773,8 +906,10 @@ async function validatePolicyLogic() {
   }
 }
 
+let _savePolicySubmitting = false;
 async function savePolicy(e) {
   e.preventDefault();
+  if (_savePolicySubmitting) return;
   if (state.role !== 'ADMIN') {
     showToast('Permission Denied: Requires ADMIN role.', 'error');
     return;
@@ -792,12 +927,16 @@ async function savePolicy(e) {
     rule_id: $('pb-linked-rule').value || null,
     min_risk: Number($('pb-min-risk').value) || 0,
     max_risk: Number($('pb-max-risk').value) || 100,
+    risk_threshold: Number($('pb-risk-threshold').value) || 85,
     priority: Number($('pb-priority').value),
     allow_offline: $('pb-allow-offline').checked ? 1 : 0,
     enabled: $('pb-enabled').checked ? 1 : 0,
     condition: cond
   };
 
+  const submitBtn = $('policy-builder-form').querySelector('button[type="submit"]');
+  _savePolicySubmitting = true;
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Saving…'; }
   try {
     const url = editingId ? `/api/zta/policies/${editingId}` : '/api/zta/policies';
     const method = editingId ? 'PUT' : 'POST';
@@ -813,10 +952,13 @@ async function savePolicy(e) {
     if (!res.ok) throw new Error(result.error || `HTTP ${res.status}`);
 
     showToast(`Policy ${payload.code} saved successfully. Engine reloaded.`, 'success');
-    $('policy-builder-modal').close();
+    ModalController.close('policy-builder-modal');
     await refresh();
   } catch (err) {
     showToast(`Failed to save policy: ${err.message}`, 'error');
+  } finally {
+    _savePolicySubmitting = false;
+    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = editingId ? 'Update Policy' : 'Create Policy'; }
   }
 }
 
@@ -874,7 +1016,7 @@ function openPolicyDetails(policy) {
     const btn = $('pd-view-linked-rule');
     if (btn && linkedRule) {
       btn.onclick = () => {
-        $('policy-details-modal').close();
+        ModalController.close('policy-details-modal');
         openRuleDetails(linkedRule);
       };
     }
@@ -916,11 +1058,12 @@ function openPolicyDetails(policy) {
   }
 
   $('pd-btn-edit').onclick = () => {
-    $('policy-details-modal').close();
+    ModalController.close('policy-details-modal');
     openEditPolicyModal(policy);
   };
+  $('pd-btn-edit').hidden = state.role !== 'ADMIN';
 
-  $('policy-details-modal').showModal();
+  ModalController.open('policy-details-modal');
 }
 
 // ----------------------------------------------------------------------
@@ -960,7 +1103,7 @@ function openDeleteModal(type, item) {
     }
   }
 
-  $('delete-confirm-modal').showModal();
+  ModalController.open('delete-confirm-modal');
 }
 
 async function confirmDelete() {
@@ -979,7 +1122,7 @@ async function confirmDelete() {
     if (!res.ok) throw new Error(result.error || `HTTP ${res.status}`);
 
     showToast(`Successfully deleted ${type}: ${name}. Historical records preserved.`, 'success');
-    $('delete-confirm-modal').close();
+    ModalController.close('delete-confirm-modal');
     state.activeDeleteTarget = null;
     await refresh();
   } catch (err) {
@@ -1017,7 +1160,7 @@ async function showForensicDetails(row) {
       $('forensic-pipeline').innerHTML = stages.map(([name, evidence]) =>
         `<div class="pipeline-step"><span class="step-badge">${escapeHTML(name)}</span><div class="step-content"><pre>${escapeHTML(JSON.stringify(evidence ?? null, null, 2))}</pre></div></div>`).join('');
     }
-    $('details').showModal();
+    ModalController.open('details');
   } catch (error) { showToast(error.message, 'error'); }
 }
 
@@ -1147,8 +1290,24 @@ function render() {
 
   charts(events);
   renderLiveAgentControls();
+  const route = currentRoute();
   $('dashboard-view').hidden = state.view !== 'dashboard';
   $('rules-policies-header').hidden = state.view !== 'rules_policies';
+  $('data-view').hidden = state.view === 'dashboard';
+  $('live-agent-controls').hidden = state.view !== 'agents' || !state.permissions.includes('response:write');
+  text('page-title', VIEW_TITLES[route] || 'Overview');
+  document.title = `${VIEW_TITLES[route] || 'Overview'} | ZTA Platform`;
+  if (state.view === 'rules_policies') {
+    const isRules = state.rulesPoliciesSubtab === 'rules';
+    $('btn-create-rule').hidden = !isRules || state.role !== 'ADMIN';
+    $('btn-create-policy').hidden = isRules || state.role !== 'ADMIN';
+    $('rules-filterbar').hidden = !isRules;
+    $('policies-filterbar').hidden = isRules;
+    $('subtab-rules-btn').classList.toggle('active', isRules);
+    $('subtab-rules-btn').setAttribute('aria-selected', String(isRules));
+    $('subtab-policies-btn').classList.toggle('active', !isRules);
+    $('subtab-policies-btn').setAttribute('aria-selected', String(!isRules));
+  }
 
   // Subtab badges
   text('rules-count-badge', state.rules.length);
@@ -1159,6 +1318,12 @@ function render() {
       (state.view === 'rules_policies' && tab.dataset.view === 'rules_policies');
     tab.classList.toggle('active', active);
     tab.setAttribute('aria-selected', String(active));
+  });
+  document.querySelectorAll('#navigation [data-view]').forEach(item => {
+    const active = (item.dataset.subtab || item.dataset.view) === route;
+    item.classList.toggle('active', active);
+    if (active) item.setAttribute('aria-current', 'page');
+    else item.removeAttribute('aria-current');
   });
 
   const query = $('search').value.toLowerCase().trim();
@@ -1212,6 +1377,26 @@ function render() {
     text('table-title', 'Security Audit Trail');
     headings = ['Timestamp', 'Event Type', 'Action', 'Agent / User', 'Source', 'Status'];
     state.rows = state.auditLogs.filter(a => JSON.stringify(a).toLowerCase().includes(query));
+  } else if (state.view === 'mitre') {
+    text('table-title', 'MITRE ATT&CK Detection Coverage');
+    headings = ['Technique', 'Tactic', 'Configured Rules', 'Enabled Rules', 'Observed Matches', 'Last Observed'];
+    state.rows = state.mitreTechniques.filter(row => JSON.stringify(row).toLowerCase().includes(query));
+  } else if (state.view === 'threat_intel') {
+    text('table-title', 'Threat Intelligence');
+    headings = ['Indicator', 'Type', 'Source', 'Confidence', 'First Seen', 'Last Seen'];
+    state.rows = state.threatIndicators.filter(row => JSON.stringify(row).toLowerCase().includes(query));
+  } else if (state.view === 'reports') {
+    text('table-title', 'Database-backed Security Reports');
+    headings = ['Report', 'Description', 'Format', 'Authorization'];
+    state.rows = state.reports;
+  } else if (state.view === 'users') {
+    text('table-title', 'Operator Users');
+    headings = ['Username', 'Role', 'Enabled', 'Created', 'Created By', 'Last Login'];
+    state.rows = state.users.filter(row => JSON.stringify(row).toLowerCase().includes(query));
+  } else if (state.view === 'settings') {
+    text('table-title', 'Effective Manager Settings (Read-only)');
+    headings = ['Setting', 'Effective Value'];
+    state.rows = state.settings;
   } else if (state.view === 'services') {
     text('table-title', 'Background Manager Services Monitor');
     headings = ['Service Name', 'Operational Status', 'Last Activity', 'Heartbeat'];
@@ -1320,6 +1505,21 @@ function render() {
         escapeHTML(row.execution_source || 'MANAGER'),
         `<span class="badge ${row.status}">${row.status}</span>`
       ];
+    } else if (state.view === 'mitre') {
+      cells = [escapeHTML(row.technique_id), escapeHTML(row.tactic), fmt(row.configured_rules), fmt(row.enabled_rules),
+        fmt(row.observed_matches), row.last_observed ? date(row.last_observed).toLocaleString() : 'Not observed'];
+    } else if (state.view === 'threat_intel') {
+      cells = [escapeHTML(row.indicator), escapeHTML(row.type), escapeHTML(row.source), escapeHTML(row.confidence || 'Unavailable'),
+        escapeHTML(row.first_seen || 'Unavailable'), escapeHTML(row.last_seen || 'Unavailable')];
+    } else if (state.view === 'reports') {
+      cells = [escapeHTML(row.name), escapeHTML(row.description),
+        `<button class="row-code-btn" data-report-format="json">JSON</button> <button class="row-code-btn" data-report-format="csv">CSV</button>`,
+        'audit:read'];
+    } else if (state.view === 'users') {
+      cells = [escapeHTML(row.username), escapeHTML(row.role), row.enabled ? 'ENABLED' : 'DISABLED',
+        date(row.created_at).toLocaleString(), escapeHTML(row.created_by), row.last_login_at ? date(row.last_login_at).toLocaleString() : 'Never'];
+    } else if (state.view === 'settings') {
+      cells = [escapeHTML(row.name), escapeHTML(row.value)];
     } else if (state.view === 'services') {
       cells = [
         escapeHTML(row.service_name),
@@ -1344,9 +1544,21 @@ function render() {
 
   // Attach event listeners for table buttons
   const tbody = $('table-body');
+  if (state.role !== 'ADMIN') {
+    tbody.querySelectorAll('[data-edit-rule], [data-delete-rule], [data-edit-policy], [data-delete-policy]').forEach(el => el.remove());
+    tbody.querySelectorAll('[data-toggle-rule], [data-toggle-policy]').forEach(el => {
+      const status = document.createElement('span');
+      status.className = 'badge';
+      status.textContent = el.checked ? 'ENABLED' : 'DISABLED';
+      (el.closest('label') || el).replaceWith(status);
+    });
+  }
 
   tbody.querySelectorAll('[data-row]').forEach(btn => {
     btn.onclick = () => showForensicDetails(page[Number(btn.dataset.row)]);
+  });
+  tbody.querySelectorAll('[data-report-format]').forEach(btn => {
+    btn.onclick = () => downloadSecurityReport(btn.dataset.reportFormat);
   });
 
   tbody.querySelectorAll('[data-view-rule]').forEach(btn => {
@@ -1371,7 +1583,11 @@ function render() {
   });
 
   tbody.querySelectorAll('[data-toggle-rule]').forEach(input => {
-    input.onchange = () => toggleRule(input.dataset.toggleRule, input.checked);
+    input.onchange = async () => {
+      const row = input.closest('tr');
+      row?.querySelectorAll('button, input').forEach(control => { control.disabled = true; });
+      await toggleRule(input.dataset.toggleRule, input.checked);
+    };
   });
 
   tbody.querySelectorAll('[data-view-policy]').forEach(btn => {
@@ -1396,7 +1612,11 @@ function render() {
   });
 
   tbody.querySelectorAll('[data-toggle-policy]').forEach(input => {
-    input.onchange = () => togglePolicy(input.dataset.togglePolicy, input.checked);
+    input.onchange = async () => {
+      const row = input.closest('tr');
+      row?.querySelectorAll('button, input').forEach(control => { control.disabled = true; });
+      await togglePolicy(input.dataset.togglePolicy, input.checked);
+    };
   });
 
   tbody.querySelectorAll('[data-open-rule]').forEach(btn => {
@@ -1423,9 +1643,11 @@ async function refresh() {
     await fetchSchema();
     const endpoints = [
       'events?limit=10000', 'agents', 'incidents', 'overview',
-      'rules', 'policies', 'timeline', 'background-services', 'listening-ports', 'processes', 'sessions', 'commands', 'scripts'
+      'rules', 'policies', 'timeline', 'background-services', 'listening-ports', 'processes', 'sessions', 'commands', 'scripts',
+      'analytics/mitre-coverage', 'threat-intelligence', 'settings'
     ];
-    if (state.permissions.includes('audit:read')) endpoints.push('audit');
+    const auditIndex = state.permissions.includes('audit:read') ? endpoints.push('audit') - 1 : -1;
+    const usersIndex = state.permissions.includes('users:manage') ? endpoints.push('users') - 1 : -1;
     const results = await Promise.all(endpoints.map(async ep => {
       const response = await apiFetch(`/api/zta/${ep}`, {
         headers: { 'X-User-Role': state.role },
@@ -1448,7 +1670,12 @@ async function refresh() {
     state.sessions = results[10].sessions || [];
     state.commands = results[11].commands || [];
     state.scripts = results[12].scripts || [];
-    state.auditLogs = state.permissions.includes('audit:read') ? (results[13].audit_logs || []) : [];
+    state.mitreTechniques = results[13].techniques || [];
+    state.threatIndicators = results[14].indicators || [];
+    state.settings = Object.entries(results[15].settings || {}).map(([name, value]) => ({name, value}));
+    state.auditLogs = auditIndex >= 0 ? (results[auditIndex].audit_logs || []) : [];
+    state.users = usersIndex >= 0 ? (results[usersIndex].users || []) : [];
+    state.reports = state.permissions.includes('audit:read') ? [{name:'Security Summary', description:'Endpoint health, alert severity/status, and verified response outcomes.'}] : [];
 
     $('notice').hidden = (state.overview.total_events || 0) <= state.events.length;
     if (!$('notice').hidden) {
@@ -1473,17 +1700,35 @@ async function refresh() {
 
 function initWebSocket() {
   if (!state.adminToken || !state.permissions.includes('stream')) return;
+  if (state.ws && (state.ws.readyState === WebSocket.OPEN || state.ws.readyState === WebSocket.CONNECTING)) return;
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${protocol}//${location.host}/api/zta/ws`;
   try {
     const ws = new WebSocket(wsUrl, [`zta-token.${state.adminToken}`]);
     state.ws = ws;
-    ws.onopen = () => {
+    ws.onopen = async () => {
+      state.wsRetries = 0;
       text('connection', `● Real-Time WebSocket Connected · ${state.agents.length} Endpoints`);
+      // Subscribe before taking the authoritative snapshot to close the
+      // initial snapshot/stream race. Sequence replay closes reconnect gaps.
+      await refresh();
     };
     ws.onmessage = event => {
       try {
         const msg = JSON.parse(event.data);
+        const sequence = Number(msg.sequence_number || 0);
+        state.seenRealtimeEvents ||= new Set();
+        if (msg.event_id && state.seenRealtimeEvents.has(msg.event_id)) return;
+        if (sequence && state.lastRealtimeSequence && sequence > state.lastRealtimeSequence + 1) {
+          recoverRealtime(state.lastRealtimeSequence);
+          return;
+        }
+        if (sequence && sequence <= (state.lastRealtimeSequence || 0)) return;
+        if (msg.event_id) {
+          state.seenRealtimeEvents.add(msg.event_id);
+          if (state.seenRealtimeEvents.size > 2000) state.seenRealtimeEvents.delete(state.seenRealtimeEvents.values().next().value);
+        }
+        if (sequence) state.lastRealtimeSequence = sequence;
         if (msg.event && (msg.event.startsWith('rule.') || msg.event.startsWith('policy.'))) {
           // Rule or policy mutation occurred
           refresh();
@@ -1492,8 +1737,11 @@ function initWebSocket() {
         }
       } catch (_) {}
     };
-    ws.onclose = () => {
-      setTimeout(initWebSocket, 3000);
+    ws.onclose = event => {
+      if (state.ws === ws) state.ws = null;
+      text('connection', event.code === 1008 ? 'Authentication Failed' : 'Reconnecting Real-Time Stream…');
+      state.wsRetries = Math.min((state.wsRetries || 0) + 1, 6);
+      setTimeout(initWebSocket, Math.min(30000, 1000 * (2 ** state.wsRetries)));
     };
     ws.onerror = () => {
       ws.close();
@@ -1501,20 +1749,51 @@ function initWebSocket() {
   } catch (_) {}
 }
 
+async function recoverRealtime(afterSequence) {
+  try {
+    const response = await apiFetch(`/api/zta/realtime-events?after_sequence=${Number(afterSequence || 0)}&limit=1000`);
+    if (!response.ok) throw new Error(`replay returned ${response.status}`);
+    const replay = await response.json();
+    state.seenRealtimeEvents ||= new Set();
+    for (const item of (replay.events || [])) {
+      if (item.event_id) state.seenRealtimeEvents.add(item.event_id);
+      state.lastRealtimeSequence = Math.max(state.lastRealtimeSequence || 0, Number(item.sequence_number || 0));
+    }
+    await refresh();
+  } catch (error) {
+    text('connection', `Real-Time Resynchronization Failed: ${error.message}`);
+  }
+}
+
+// Poll as a fallback when a proxy or network blocks WebSocket upgrades.
+setInterval(() => {
+  if (!state.adminToken) return;
+  if (!state.ws || state.ws.readyState !== WebSocket.OPEN) refresh();
+}, 15000);
+
 // ----------------------------------------------------------------------
 // NAVIGATION & VIEW SWITCHING
 // ----------------------------------------------------------------------
-function switchView(view) {
-  if (view === 'rules' || view === 'policies') {
+function switchView(view, options = {}) {
+  ModalController.closeAll();
+  if (view === 'rules_policies') {
     state.view = 'rules_policies';
-    switchSubtab(view);
-    return;
+    state.rulesPoliciesSubtab = options.subtab || state.rulesPoliciesSubtab || 'rules';
+  } else if (view === 'rules' || view === 'policies') {
+    state.view = 'rules_policies';
+    state.rulesPoliciesSubtab = view;
+  } else {
+    state.view = VALID_VIEWS.has(view) ? view : 'dashboard';
   }
-  state.view = view;
   state.page = 0;
   $('navigation').hidden = true;
   $('menu').setAttribute('aria-expanded', 'false');
   $('date-range').hidden = true;
+  if (!options.fromHistory) {
+    const url = new URL(location.href);
+    url.searchParams.set('view', currentRoute());
+    history.pushState({view: currentRoute()}, '', url);
+  }
   render();
 }
 
@@ -1534,6 +1813,9 @@ function switchSubtab(subtab) {
   $('rules-filterbar').hidden = !isRules;
   $('policies-filterbar').hidden = isRules;
 
+  const url = new URL(location.href);
+  url.searchParams.set('view', subtab);
+  history.pushState({view: subtab}, '', url);
   render();
 }
 
@@ -1541,8 +1823,9 @@ function switchSubtab(subtab) {
 // EVENT LISTENERS INITIALIZATION
 // ----------------------------------------------------------------------
 document.querySelectorAll('[data-view]').forEach(button => {
-  button.addEventListener('click', () => switchView(button.dataset.view));
+  button.addEventListener('click', () => switchView(button.dataset.view, {subtab: button.dataset.subtab}));
 });
+window.addEventListener('popstate', () => switchView(routeFromLocation(), {fromHistory: true}));
 
 $('subtab-rules-btn').onclick = () => switchSubtab('rules');
 $('subtab-policies-btn').onclick = () => switchSubtab('policies');
@@ -1572,6 +1855,7 @@ $('login-form').onsubmit = async event => {
   sessionStorage.setItem('ztaAccessToken', state.adminToken);
   const identity = result.user;
   unlockDashboard(identity);
+  switchView(routeFromLocation(), {fromHistory: true});
   showToast(`${identity.username} authenticated as ${state.role}`, 'success');
   await refresh();
   initWebSocket();
@@ -1582,23 +1866,23 @@ $('sign-out').onclick = async () => {
   history.replaceState(null, '', location.pathname);
 };
 $('create-user').onclick = async () => {
-  $('user-create').showModal();
+  ModalController.open('user-create', $('create-user'));
   const response = await apiFetch('/api/zta/users');
   const result = await response.json();
   $('user-list').innerHTML = response.ok ? result.users.map(user => `<article class="user-row"><span class="user-avatar">${escapeHTML(user.username.slice(0, 2).toUpperCase())}</span><span><strong>${escapeHTML(user.username)}</strong><small>${escapeHTML(user.role.replace('_', ' '))}</small></span><span class="user-state">${user.enabled ? 'Active' : 'Disabled'}</span></article>`).join('') : `<p class="form-error">${escapeHTML(result.error || 'Unable to load operators')}</p>`;
 };
-$('cancel-user-create').onclick = () => $('user-create').close();
+$('cancel-user-create').onclick = () => ModalController.close('user-create');
 $('user-create-form').onsubmit = async event => {
   event.preventDefault();
   $('user-create-error').hidden = true;
   const response = await apiFetch('/api/zta/users', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username:$('new-username').value.trim(), password:$('new-password').value, role:$('new-role').value})});
   const result = await response.json();
   if (!response.ok) { $('user-create-error').hidden = false; text('user-create-error', result.error || 'User creation failed'); return; }
-  event.target.reset(); $('user-create').close();
+  event.target.reset(); ModalController.close('user-create');
   showToast(`Created ${result.user.username} as ${result.user.role}`, 'success');
 };
-$('change-password').onclick = () => $('password-change').showModal();
-$('cancel-password-change').onclick = () => $('password-change').close();
+$('change-password').onclick = () => ModalController.open('password-change', $('change-password'));
+$('cancel-password-change').onclick = () => ModalController.close('password-change');
 $('password-change-form').onsubmit = async event => {
   event.preventDefault();
   const error = $('password-change-error'); error.hidden = true;
@@ -1608,36 +1892,60 @@ $('password-change-form').onsubmit = async event => {
   const response = await apiFetch('/api/zta/auth/password', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({current_password:$('current-password').value, new_password:$('changed-password').value})});
   const result = await response.json();
   if (!response.ok) { error.hidden = false; text('password-change-error', result.error || 'Password change failed'); return; }
-  event.target.reset(); $('password-change').close(); showToast('Password changed successfully', 'success');
+  event.target.reset(); ModalController.close('password-change'); showToast('Password changed successfully', 'success');
 };
 
 // Modals close buttons
-$('close-rule-builder').onclick = () => $('rule-builder-modal').close();
-$('rb-cancel').onclick = () => $('rule-builder-modal').close();
+$('close-rule-builder').onclick = () => ModalController.close('rule-builder-modal');
+$('rb-cancel').onclick = () => ModalController.close('rule-builder-modal');
 $('rule-builder-form').onsubmit = saveRule;
 $('rb-btn-validate').onclick = validateRuleCondition;
 $('rb-btn-dryrun-toggle').onclick = () => {
   $('rb-dryrun-box').hidden = !$('rb-dryrun-box').hidden;
 };
 $('rb-btn-run-test').onclick = runRuleDryRun;
+$('rb-add-condition-root').onclick = () => {
+  if (state.ruleBuilderTree && state.ruleBuilderTree.children) {
+    state.ruleBuilderTree.children.push(createLeafCondition());
+    mountConditionBuilder(state.ruleBuilderTree, 'rb-condition-tree-root', 'rb-validate-status');
+  }
+};
+$('rb-add-group-root').onclick = () => {
+  if (state.ruleBuilderTree && state.ruleBuilderTree.children) {
+    state.ruleBuilderTree.children.push(createGroupCondition('all'));
+    mountConditionBuilder(state.ruleBuilderTree, 'rb-condition-tree-root', 'rb-validate-status');
+  }
+};
 
-$('close-policy-builder').onclick = () => $('policy-builder-modal').close();
-$('pb-cancel').onclick = () => $('policy-builder-modal').close();
+$('close-policy-builder').onclick = () => ModalController.close('policy-builder-modal');
+$('pb-cancel').onclick = () => ModalController.close('policy-builder-modal');
 $('policy-builder-form').onsubmit = savePolicy;
 $('pb-btn-validate').onclick = validatePolicyLogic;
 $('pb-action').onchange = updatePolicyActionHint;
+$('pb-add-condition-root').onclick = () => {
+  if (state.policyBuilderTree && state.policyBuilderTree.children) {
+    state.policyBuilderTree.children.push(createLeafCondition());
+    mountConditionBuilder(state.policyBuilderTree, 'pb-condition-tree-root', 'pb-validate-status');
+  }
+};
+$('pb-add-group-root').onclick = () => {
+  if (state.policyBuilderTree && state.policyBuilderTree.children) {
+    state.policyBuilderTree.children.push(createGroupCondition('all'));
+    mountConditionBuilder(state.policyBuilderTree, 'pb-condition-tree-root', 'pb-validate-status');
+  }
+};
 
-$('close-rule-details').onclick = () => $('rule-details-modal').close();
-$('close-rule-details-btn').onclick = () => $('rule-details-modal').close();
+$('close-rule-details').onclick = () => ModalController.close('rule-details-modal');
+$('close-rule-details-btn').onclick = () => ModalController.close('rule-details-modal');
 
-$('close-policy-details').onclick = () => $('policy-details-modal').close();
-$('close-policy-details-btn').onclick = () => $('policy-details-modal').close();
+$('close-policy-details').onclick = () => ModalController.close('policy-details-modal');
+$('close-policy-details-btn').onclick = () => ModalController.close('policy-details-modal');
 
-$('close-delete-modal').onclick = () => $('delete-confirm-modal').close();
-$('del-cancel').onclick = () => $('delete-confirm-modal').close();
+$('close-delete-modal').onclick = () => ModalController.close('delete-confirm-modal');
+$('del-cancel').onclick = () => ModalController.close('delete-confirm-modal');
 $('del-confirm').onclick = confirmDelete;
 
-$('close-details').onclick = () => $('details').close();
+$('close-details').onclick = () => ModalController.close('details');
 
 // Filter changes
 ['filter-rule-category', 'filter-rule-severity', 'filter-rule-status',
@@ -1731,25 +2039,25 @@ $('clear-database').onclick = async () => {
   await refresh();
 };
 
-$('report').onclick = () => {
-  const report = {
-    project: 'ZTA Zero Trust Architecture EDR',
-    generated_at: new Date().toISOString(),
-    view: state.view,
-    subtab: state.view === 'rules_policies' ? state.rulesPoliciesSubtab : null,
-    role: state.role,
-    records: state.rows
-  };
-  const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }));
+$('report').onclick = () => downloadSecurityReport('json');
+
+async function downloadSecurityReport(format) {
+  if (!state.permissions.includes('audit:read')) { showToast('Report export requires audit access.', 'error'); return; }
+  const response = await apiFetch(`/api/zta/reports/security-summary?format=${encodeURIComponent(format)}`,
+    {signal: AbortSignal.timeout(10000)});
+  if (!response.ok) { showToast(`Report export rejected (${response.status}).`, 'error'); return; }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `zta-${state.view}-${Date.now()}.json`;
+  a.download = `zta-security-summary.${format}`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
-};
+}
 
 // Initial start: restore a session or require login before loading protected data.
 (async () => {
+  ModalController.init();
   const storedToken = state.adminToken;
   lockDashboard();
   state.adminToken = storedToken;
@@ -1758,6 +2066,7 @@ $('report').onclick = () => {
     if (response.ok) {
       const identity = await response.json();
       unlockDashboard(identity);
+      switchView(routeFromLocation(), {fromHistory: true});
       await refresh(); initWebSocket(); return;
     }
   }

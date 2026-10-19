@@ -1,5 +1,6 @@
 """Start ZTA's dashboard and API without changing the working directory."""
 import argparse
+import os
 from pathlib import Path
 import sys
 import threading
@@ -15,7 +16,14 @@ def main():
     parser.add_argument("--port", type=int, default=8000, help="Dashboard port")
     parser.add_argument("--api-port", type=int, default=8080, help="Agent API port")
     parser.add_argument("--db", help="SQLite database path (also ZTA_DB_PATH)")
+    parser.add_argument("--config", help="Protected Manager environment configuration file")
     args = parser.parse_args()
+    if args.config:
+        for line in Path(args.config).read_text(encoding="utf-8-sig").splitlines():
+            if line.strip() and not line.lstrip().startswith("#"):
+                key, value = line.split("=", 1)
+                if key.strip().startswith("ZTA_"):
+                    os.environ[key.strip()] = value.strip()
     servers = []
     try:
         for port in dict.fromkeys((args.port, args.api_port)):

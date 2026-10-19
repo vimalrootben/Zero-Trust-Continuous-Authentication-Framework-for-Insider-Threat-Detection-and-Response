@@ -3,6 +3,8 @@
 import json
 import sqlite3
 import threading
+import os
+import uuid
 from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -36,6 +38,8 @@ class ZTADatabase:
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self.seed_defaults = seed_defaults
         self._local = threading.local()
+        with sqlite3.connect(self.db_path, timeout=30) as conn:
+            conn.execute("PRAGMA journal_mode=WAL")
         self._init_db()
 
     def get_connection(self) -> sqlite3.Connection:
@@ -44,6 +48,9 @@ class ZTADatabase:
             return _TransactionView(self._local.connection)
         conn = sqlite3.connect(self.db_path, timeout=30)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.execute("PRAGMA busy_timeout=30000")
+        conn.execute("PRAGMA synchronous=NORMAL")
         return conn
 
     @contextmanager
@@ -103,6 +110,9 @@ class ZTADatabase:
                 domain TEXT, state TEXT, last_observed TEXT NOT NULL,
                 PRIMARY KEY(agent_id,session_id)
             )""")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_agent_listening_ports_agent ON agent_listening_ports(agent_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_agent_processes_agent ON agent_processes(agent_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_agent_sessions_agent ON agent_sessions(agent_id)")
 
             # ZTA Events Table
             cursor.execute("""
@@ -185,7 +195,7 @@ class ZTADatabase:
                     min_risk INTEGER NOT NULL DEFAULT 0,
                     max_risk INTEGER NOT NULL DEFAULT 100,
                     action TEXT NOT NULL,
-                    mode TEXT NOT NULL DEFAULT 'ENFORCE',
+                    mode TEXT NOT NULL DEFAULT 'ALERT_ONLY',
                     condition_json TEXT,
                     enabled INTEGER NOT NULL DEFAULT 1,
                     allow_offline INTEGER NOT NULL DEFAULT 0,
@@ -200,7 +210,7 @@ class ZTADatabase:
             self._ensure_column(cursor, "policies", "severity", "TEXT DEFAULT 'HIGH'")
             self._ensure_column(cursor, "policies", "rule_id", "TEXT")
             self._ensure_column(cursor, "policies", "risk_threshold", "INTEGER DEFAULT 85")
-            self._ensure_column(cursor, "policies", "mode", "TEXT NOT NULL DEFAULT 'ENFORCE'")
+            self._ensure_column(cursor, "policies", "mode", "TEXT NOT NULL DEFAULT 'ALERT_ONLY'")
             self._ensure_column(cursor, "policies", "condition_json", "TEXT")
             self._ensure_column(cursor, "policies", "allow_offline", "INTEGER NOT NULL DEFAULT 0")
             self._ensure_column(cursor, "policies", "last_evaluated", "TEXT")
@@ -325,6 +335,18 @@ class ZTADatabase:
                     timestamp TEXT NOT NULL
                 )
             """)
+            cursor.execute("""CREATE TABLE IF NOT EXISTS realtime_outbox (
+                sequence_number INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id TEXT UNIQUE NOT NULL, event_type TEXT NOT NULL,
+                payload_json TEXT NOT NULL, required_permission TEXT NOT NULL DEFAULT 'stream',
+                created_at TEXT NOT NULL, delivery_status TEXT NOT NULL DEFAULT 'PENDING',
+                delivery_attempts INTEGER NOT NULL DEFAULT 0, last_attempt_at TEXT,
+                delivered_at TEXT, last_error TEXT)""")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_realtime_outbox_pending ON realtime_outbox(delivery_status,sequence_number)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_zta_events_timestamp ON zta_events(timestamp)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_incidents_status_severity_time ON incidents(status,severity,created_at)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_rule_matches_mitre_time ON rule_matches(mitre_technique_id,matched_at)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp,id)")
 
             # Background Services Status Table
             cursor.execute("""
@@ -379,9 +401,17 @@ class ZTADatabase:
                 ("zta_events", "normalized_json", "TEXT"),
                 ("zta_events", "processing_state", "TEXT DEFAULT 'LEGACY'"),
                 ("zta_events", "processing_error", "TEXT"),
+                ("zta_events", "processing_attempt_count", "INTEGER NOT NULL DEFAULT 0"),
+                ("zta_events", "processing_started_at", "TEXT"),
+                ("zta_events", "processing_next_attempt_at", "TEXT"),
+                ("zta_events", "processing_last_error_at", "TEXT"),
+                ("zta_events", "processing_worker_id", "TEXT"),
                 ("policy_evaluations", "condition_trace_json", "TEXT"),
                 ("commands", "executing_at", "TEXT"),
                 ("commands", "synced_at", "TEXT"),
+                ("commands", "result_id", "TEXT"),
+                ("commands", "verification_status", "TEXT"),
+                ("commands", "correlation_id", "TEXT"),
                 ("agents", "agent_version", "TEXT"),
                 ("agents", "collector_error", "TEXT"),
                 ("agents", "active_interface", "TEXT"),
@@ -390,6 +420,12 @@ class ZTADatabase:
                 ("agents", "local_ipv6", "TEXT"),
                 ("agents", "manager_observed_ip", "TEXT"),
                 ("agents", "interfaces_json", "TEXT"),
+                ("agents", "worker_health_json", "TEXT"),
+                ("agents", "last_telemetry_at", "TEXT"),
+                ("agents", "inventory_truncated", "INTEGER DEFAULT 0"),
+                ("agents", "reported_connection_state", "TEXT"),
+                ("agents", "agent_reported_time", "TEXT"),
+                ("agents", "manager_received_time", "TEXT"),
                 ("rules", "is_demo", "INTEGER DEFAULT 0"),
                 ("rules", "current_version", "INTEGER NOT NULL DEFAULT 1"),
                 ("rule_matches", "is_demo", "INTEGER DEFAULT 0"),
@@ -408,7 +444,18 @@ class ZTADatabase:
                 PRIMARY KEY(rule_id, version)
             )""")
             cursor.execute("CREATE TABLE IF NOT EXISTS rule_evaluations (evaluation_id TEXT PRIMARY KEY, event_id TEXT NOT NULL, rule_id TEXT NOT NULL, agent_id TEXT NOT NULL, result INTEGER NOT NULL, trace_json TEXT NOT NULL, timestamp TEXT NOT NULL, execution_source TEXT NOT NULL)")
+            self._ensure_column(cursor, "rule_evaluations", "outcome", "TEXT NOT NULL DEFAULT 'NO_MATCH'")
+            self._ensure_column(cursor, "rule_evaluations", "error_code", "TEXT")
+            self._ensure_column(cursor, "rule_evaluations", "rule_version", "INTEGER")
             cursor.execute("CREATE TABLE IF NOT EXISTS sync_receipts (agent_id TEXT NOT NULL, batch_id TEXT NOT NULL, payload_hash TEXT NOT NULL, response_json TEXT NOT NULL, PRIMARY KEY(agent_id,batch_id))")
+            cursor.execute("""CREATE TABLE IF NOT EXISTS command_results (
+                result_id TEXT PRIMARY KEY, command_id TEXT NOT NULL, agent_id TEXT NOT NULL,
+                status TEXT NOT NULL, verification_status TEXT, verification TEXT,
+                evidence_json TEXT NOT NULL, received_at TEXT NOT NULL,
+                UNIQUE(command_id, result_id),
+                FOREIGN KEY(command_id) REFERENCES commands(command_id)
+            )""")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_command_results_command ON command_results(command_id, received_at)")
             cursor.execute("""CREATE TABLE IF NOT EXISTS agent_logs (
                 log_id TEXT PRIMARY KEY,
                 timestamp TEXT NOT NULL,
@@ -437,6 +484,9 @@ class ZTADatabase:
                     (row["rule_id"], json.dumps(definition), row["created_at"]),
                 )
             cursor.execute("INSERT OR IGNORE INTO schema_migrations VALUES ('20260914-rule-version-history', ?)", (datetime.now(timezone.utc).isoformat(),))
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_rule_evaluations_event ON rule_evaluations(event_id, outcome)")
+            cursor.execute("INSERT OR IGNORE INTO schema_migrations VALUES ('20261014-detection-reliability', ?)", (datetime.now(timezone.utc).isoformat(),))
+            cursor.execute("INSERT OR IGNORE INTO schema_migrations VALUES ('20261014-response-journal', ?)", (datetime.now(timezone.utc).isoformat(),))
             if not cursor.execute("SELECT 1 FROM schema_migrations WHERE version='20260914-policy-priority'").fetchone():
                 existing = cursor.execute(
                     "SELECT policy_id FROM policies ORDER BY CASE WHEN rule_id IS NOT NULL AND rule_id<>'' THEN 0 ELSE 1 END, min_risk ASC, code ASC, policy_id ASC"
@@ -1222,7 +1272,7 @@ class ZTARepository:
         candidate = dict(policy_data) if isinstance(policy_data, dict) else policy_data
         if isinstance(candidate, dict):
             candidate.setdefault("severity", "HIGH")
-            candidate.setdefault("mode", "ENFORCE")
+            candidate.setdefault("mode", "ALERT_ONLY")
             candidate.setdefault("action", "MONITOR")
             candidate.setdefault("min_risk", 0)
             candidate.setdefault("max_risk", 100)
@@ -1249,7 +1299,7 @@ class ZTARepository:
         min_risk = int(policy_data.get("min_risk", 0))
         max_risk = int(policy_data.get("max_risk", 100))
         action = policy_data.get("action", "MONITOR")
-        mode = policy_data.get("mode", "ENFORCE")
+        mode = policy_data.get("mode", "ALERT_ONLY")
         cond = policy_data.get("condition") or policy_data.get("condition_json")
         cond_json = json.dumps(cond) if cond is not None and not isinstance(cond, str) else cond
         enabled = 1 if policy_data.get("enabled", True) else 0
@@ -1331,7 +1381,7 @@ class ZTARepository:
         min_risk = int(update_data.get("min_risk", policy.get("min_risk", 0)))
         max_risk = int(update_data.get("max_risk", policy.get("max_risk", 100)))
         action = update_data.get("action", policy.get("action", "MONITOR"))
-        mode = update_data.get("mode", policy.get("mode", "ENFORCE"))
+        mode = update_data.get("mode", policy.get("mode", "ALERT_ONLY"))
         enabled = 1 if update_data.get("enabled", policy.get("enabled", 1)) else 0
         allow_offline = 1 if update_data.get("allow_offline", policy.get("allow_offline", 0)) else 0
         priority = update_data.get("priority", policy.get("priority", 1000))
@@ -1492,7 +1542,7 @@ class ZTARepository:
                     eval_data.get("alert_id"),
                     eval_data.get("risk_score", 0),
                     eval_data.get("trust_score", 100),
-                    eval_data.get("mode", "ENFORCE"),
+                    eval_data.get("mode", "ALERT_ONLY"),
                     eval_data.get("action", "MONITOR"),
                     eval_data.get("evaluation_result", "TRIGGERED"),
                     eval_data.get("reason", ""),
@@ -1672,8 +1722,8 @@ class ZTARepository:
                     command_id, policy_id, policy_code, alert_id, agent_id,
                     action_type, params_json, status, executor, output,
                     error_code, error_message, verification, dry_run,
-                    execution_source, created_at, dispatched_at, completed_at, expires_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    execution_source, created_at, dispatched_at, completed_at, expires_at, correlation_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     cmd["command_id"],
@@ -1695,6 +1745,7 @@ class ZTARepository:
                     cmd.get("dispatched_at"),
                     cmd.get("completed_at"),
                     cmd.get("expires_at"),
+                    cmd.get("correlation_id") or cmd.get("alert_id"),
                 ),
             )
             conn.commit()
@@ -1786,11 +1837,20 @@ class ZTARepository:
             )
             conn.commit()
 
-    def get_audit_logs(self, limit: int = 50) -> List[Dict[str, Any]]:
+    def get_audit_logs(self, limit: int = 50, event_type: Optional[str] = None,
+                       correlation_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Retrieves recent audit logs."""
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM audit_log ORDER BY timestamp DESC, id DESC LIMIT ?", (limit,))
+            clauses, params = [], []
+            if event_type:
+                clauses.append("event_type=?"); params.append(str(event_type)[:100])
+            if correlation_id:
+                clauses.append("json_extract(details_json, '$.correlation_id')=?")
+                params.append(str(correlation_id)[:256])
+            where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+            params.append(max(1, min(1000, int(limit))))
+            cursor.execute("SELECT * FROM audit_log" + where + " ORDER BY timestamp DESC, id DESC LIMIT ?", params)
             rows = [dict(r) for r in cursor.fetchall()]
             for r in rows:
                 try:
@@ -1798,6 +1858,48 @@ class ZTARepository:
                 except Exception:
                     r["details"] = {}
             return rows
+
+    def enqueue_realtime_event(self, event_type: str, payload: Dict[str, Any],
+                               required_permission: str = "stream", event_id: Optional[str] = None) -> Dict[str, Any]:
+        """Append publication intent using the caller's active transaction."""
+        now = datetime.now(timezone.utc).isoformat()
+        publication_id = event_id or "pub-" + uuid.uuid4().hex
+        encoded = json.dumps(payload, sort_keys=True, default=str)
+        if len(encoded.encode("utf-8")) > 1_048_576:
+            raise ValueError("Realtime event payload exceeds 1 MiB")
+        with self.db.get_connection() as conn:
+            conn.execute("""INSERT OR IGNORE INTO realtime_outbox
+                (event_id,event_type,payload_json,required_permission,created_at) VALUES(?,?,?,?,?)""",
+                (publication_id, event_type, encoded, required_permission, now))
+            row = conn.execute("SELECT * FROM realtime_outbox WHERE event_id=?", (publication_id,)).fetchone()
+        result = dict(row); result["data"] = json.loads(result.pop("payload_json"))
+        return result
+
+    def get_realtime_events(self, after_sequence: int = 0, limit: int = 200,
+                            pending_only: bool = False) -> List[Dict[str, Any]]:
+        limit = max(1, min(int(limit), 1000))
+        clause = " AND delivery_status IN ('PENDING','RETRY')" if pending_only else ""
+        with self.db.get_connection() as conn:
+            rows = conn.execute(f"SELECT * FROM realtime_outbox WHERE sequence_number>?{clause} ORDER BY sequence_number LIMIT ?",
+                                (max(0, int(after_sequence)), limit)).fetchall()
+        result = []
+        for row in rows:
+            item = dict(row); item["data"] = json.loads(item.pop("payload_json")); result.append(item)
+        return result
+
+    def mark_realtime_delivery(self, event_id: str, delivered: bool, error: Optional[str] = None):
+        now = datetime.now(timezone.utc).isoformat()
+        with self.db.get_connection() as conn:
+            conn.execute("""UPDATE realtime_outbox SET delivery_status=?,delivery_attempts=delivery_attempts+1,
+                last_attempt_at=?,delivered_at=CASE WHEN ? THEN ? ELSE delivered_at END,last_error=? WHERE event_id=?""",
+                ('DELIVERED' if delivered else 'RETRY', now, int(delivered), now, (error or '')[:1000] or None, event_id))
+
+    def prune_realtime_outbox(self, retain: int = 10000):
+        retain = max(100, int(retain))
+        with self.db.get_connection() as conn:
+            conn.execute("""DELETE FROM realtime_outbox WHERE delivery_status='DELIVERED'
+                AND sequence_number < COALESCE((SELECT sequence_number FROM realtime_outbox
+                ORDER BY sequence_number DESC LIMIT 1 OFFSET ?), 0)""", (retain,))
 
     # --- Background Services Status ---
     def update_service_heartbeat(self, service_name: str, status: str = "RUNNING", details: Optional[Dict[str, Any]] = None, activity: bool = True):
@@ -1872,12 +1974,15 @@ class ZTARepository:
     def save_heartbeat(self, telemetry: Dict[str, Any]):
         """Saves or updates agent heartbeat and presence."""
         now = datetime.now(timezone.utc).isoformat()
+        reported_state = telemetry.get("connection_state", "CONNECTING")
+        authoritative_state = "SYNCING" if telemetry.get("queue_depth", 0) or reported_state == "SYNCING" else "ONLINE"
         with self.db.get_connection() as conn:
             conn.execute(
                 """
                 INSERT INTO agents (id, name, ip, os, last_seen, connection_state, sync_state, queue_depth,
-                                    active_interface, interface_name, local_ipv4, local_ipv6, manager_observed_ip, interfaces_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    active_interface, interface_name, local_ipv4, local_ipv6, manager_observed_ip, interfaces_json,
+                                    worker_health_json, last_telemetry_at, inventory_truncated)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 ip = excluded.ip,
@@ -1891,7 +1996,10 @@ class ZTARepository:
                 local_ipv4 = COALESCE(excluded.local_ipv4, agents.local_ipv4),
                 local_ipv6 = COALESCE(excluded.local_ipv6, agents.local_ipv6),
                 manager_observed_ip = COALESCE(excluded.manager_observed_ip, agents.manager_observed_ip),
-                interfaces_json = COALESCE(excluded.interfaces_json, agents.interfaces_json)
+                interfaces_json = COALESCE(excluded.interfaces_json, agents.interfaces_json),
+                worker_health_json = COALESCE(excluded.worker_health_json, agents.worker_health_json),
+                last_telemetry_at = COALESCE(excluded.last_telemetry_at, agents.last_telemetry_at),
+                inventory_truncated = excluded.inventory_truncated
                 """,
                 (
                     telemetry["agent_id"],
@@ -1899,7 +2007,7 @@ class ZTARepository:
                     telemetry.get("ip") or telemetry.get("local_ipv4"),
                     telemetry.get("os"),
                     now,
-                    telemetry.get("connection_state", "ONLINE"),
+                    authoritative_state,
                     telemetry.get("sync_state", "IDLE"),
                     telemetry.get("queue_depth", 0),
                     telemetry.get("active_interface"),
@@ -1908,10 +2016,15 @@ class ZTARepository:
                     telemetry.get("local_ipv6"),
                     telemetry.get("manager_observed_ip"),
                     json.dumps(telemetry.get("interfaces", [])) if telemetry.get("interfaces") else None,
+                    json.dumps(telemetry.get("worker_health", {})) if telemetry.get("worker_health") is not None else None,
+                    telemetry.get("last_telemetry_at"),
+                    1 if telemetry.get("inventory_truncated") else 0,
                 ),
             )
             conn.commit()
-            conn.execute("UPDATE agents SET network_state_json=? WHERE id=?", (json.dumps(telemetry.get('network_state',{})),telemetry['agent_id']))
+            conn.execute("UPDATE agents SET network_state_json=?,reported_connection_state=?,agent_reported_time=?,manager_received_time=? WHERE id=?",
+                         (json.dumps(telemetry.get('network_state',{})), reported_state,
+                          telemetry.get('heartbeat_timestamp') or telemetry.get('timestamp'), now, telemetry['agent_id']))
             conn.commit()
 
     def save_agent_log(self, log_entry: Dict[str, Any], execution_source: str = "AGENT_ONLINE", synced_at: Optional[str] = None):
@@ -1968,6 +2081,10 @@ class ZTARepository:
                 except (TypeError, ValueError):
                     agent["network_state"] = {}
                 try:
+                    agent["worker_health"] = json.loads(agent.pop("worker_health_json") or "{}")
+                except (TypeError, ValueError):
+                    agent["worker_health"] = {}
+                try:
                     last_seen_dt = datetime.fromisoformat(agent["last_seen"])
                     if last_seen_dt.tzinfo is None:
                         last_seen_dt = last_seen_dt.replace(tzinfo=timezone.utc)
@@ -1975,13 +2092,18 @@ class ZTARepository:
                 except Exception:
                     age = 999999
 
-                # Determine status accurately
-                if age >= 120:
+                degraded_after = max(1, float(os.environ.get("ZTA_HEARTBEAT_DEGRADED_SECONDS", "45")))
+                offline_after = max(degraded_after, float(os.environ.get("ZTA_HEARTBEAT_OFFLINE_SECONDS", "120")))
+                # Liveness is based only on Manager receipt time, never the Agent clock.
+                if age >= offline_after:
                     agent["connection_state"] = "OFFLINE"
                     agent["status"] = "DISCONNECTED"
-                elif agent.get("connection_state") in ("ISOLATED", "RECONNECTING", "SYNCING", "DEGRADED", "OFFLINE"):
+                elif age >= degraded_after:
+                    agent["connection_state"] = "DEGRADED"
+                    agent["status"] = "DEGRADED"
+                elif agent.get("connection_state") in ("ISOLATED", "SYNCING"):
                     agent["status"] = agent["connection_state"]
-                elif age < 120:
+                elif age < degraded_after:
                     agent["status"] = "ACTIVE"
                 else:
                     agent["status"] = "DISCONNECTED"

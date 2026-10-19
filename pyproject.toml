@@ -52,6 +52,7 @@ testpaths = [
     "tests/test_real_logic_regressions.py",
     "tests/test_adapter.py",
     "tests/test_agent_daemon.py",
+    "tests/test_agent_runtime_failures.py",
     "tests/test_agent_engine.py",
     "tests/test_dashboard_integration.py",
     "tests/test_demo_framework_and_analytics.py",
@@ -60,5 +61,12 @@ testpaths = [
     "tests/test_storage_api.py",
     "tests/test_rules_policies_management.py",
     "tests/test_operator_auth.py",
+    "tests/test_task2_agent_workers.py",
+    "tests/test_task3_communication.py",
+    "tests/test_task4_detection_pipeline.py",
+    "tests/test_task5_response_engine.py",
+    "tests/test_task6_observability.py",
+    "tests/test_task7_dashboard.py",
+    "tests/test_task8_integration.py",
     "tests/test_zta_end_to_end_scenarios.py"
 ]

@@ -15,7 +15,7 @@ def wait_processed(base):
         request=urllib.request.Request(base+'/api/zta/events',headers={'Authorization':'Bearer fixture-admin-token'})
         with urllib.request.urlopen(request) as response:
             events=json.loads(response.read())['events']
-        if all(e['processing_state']!='PENDING' for e in events):
+        if all(e['processing_state'] in ('COMPLETED', 'FAILED') for e in events):
             assert all(e['processing_state']!='FAILED' for e in events),events
             return
         time.sleep(.02)

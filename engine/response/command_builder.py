@@ -26,6 +26,20 @@ def build_command(decision, event, command_id, alert_id, source='MANAGER'):
         params = {'UserName':event.user.name, 'Domain':event.user.domain or '', 'LogoutExistingSessions':'false'}
     elif action in ('ISOLATE_ENDPOINT', 'DISABLE_NETWORK'):
         params = {'Action': 'ISOLATE', 'ManagerIP': os.environ.get('ZTA_MANAGER_IP', '127.0.0.1')}
+    elif action == 'UNISOLATE_ENDPOINT':
+        params = {'Action': 'UNISOLATE', 'ManagerIP': os.environ.get('ZTA_MANAGER_IP', '127.0.0.1')}
+    elif action == 'LOCK_WORKSTATION':
+        if not event.user.name or not event.user.session_id:
+            raise ValueError('Workstation lock requires an exact user and session ID')
+        params = {'UserName': event.user.name, 'SessionId': str(event.user.session_id)}
+    elif action == 'QUARANTINE_FILE':
+        raw = event.raw_event if isinstance(event.raw_event, dict) else {}
+        data = raw.get('data') if isinstance(raw.get('data'), dict) else raw
+        path = data.get('file_path') or data.get('target_path')
+        digest = data.get('sha256') or data.get('file_sha256')
+        if not path or not digest:
+            raise ValueError('File quarantine requires exact path and SHA-256 evidence')
+        params = {'FilePath': str(path), 'ExpectedSha256': str(digest)}
     elif action == 'DEMO_SCRIPT':
         raw = event.raw_event if isinstance(event.raw_event, dict) else {}
         script_id = raw.get('script_id') or raw.get('response_script_id')
@@ -44,4 +58,4 @@ def build_command(decision, event, command_id, alert_id, source='MANAGER'):
                 policy_code=decision.policy_code, alert_id=alert_id, action_type=action,
                 params=params, status='QUEUED', executor='ALLOWLISTED_SCRIPT' if action == 'DEMO_SCRIPT' else 'WINDOWS_POWERSHELL',
                 created_at=now.isoformat(), expires_at=(now + timedelta(minutes=5)).isoformat(),
-                execution_source=source)
+                execution_source=source, correlation_id=alert_id)

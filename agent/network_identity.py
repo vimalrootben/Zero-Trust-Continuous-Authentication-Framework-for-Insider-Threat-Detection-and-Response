@@ -3,6 +3,7 @@
 import os
 import platform
 import socket
+import subprocess
 from typing import Any, Dict, List, Tuple
 
 
@@ -10,6 +11,24 @@ def get_all_interfaces() -> List[Dict[str, Any]]:
     """Discovers all local network adapters and addresses."""
     interfaces: List[Dict[str, Any]] = []
     hostname = platform.node()
+
+    if os.name == "nt":
+        try:
+            command = (
+                "Get-NetIPConfiguration -ErrorAction Stop | ForEach-Object { $c=$_; "
+                "@($c.IPv4Address)+@($c.IPv6Address) | Where-Object {$null -ne $_} | ForEach-Object { "
+                "[pscustomobject]@{name=$c.InterfaceAlias;index=$c.InterfaceIndex;description=$c.InterfaceDescription;"
+                "ip=$_.IPAddress;family=if($_.AddressFamily -eq 2){'IPv4'}else{'IPv6'};"
+                "is_loopback=($c.InterfaceAlias -match 'Loopback');state='UP';metric=$c.NetIPv4Interface.InterfaceMetric} } } | "
+                "ConvertTo-Json -Compress"
+            )
+            result = subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-Command',command],
+                                    capture_output=True, text=True, timeout=15, check=True)
+            decoded = __import__('json').loads(result.stdout) if result.stdout.strip() else []
+            rows = decoded if isinstance(decoded, list) else [decoded]
+            interfaces = [row for row in rows if isinstance(row, dict) and row.get('ip')]
+        except Exception:
+            interfaces = []
 
     try:
         # Resolve address info for local hostname
@@ -25,6 +44,8 @@ def get_all_interfaces() -> List[Dict[str, Any]]:
             is_ipv6 = family == socket.AF_INET6
             is_loopback = ip.startswith("127.") or ip == "::1"
 
+            if any(existing.get("ip") == ip for existing in interfaces):
+                continue
             interfaces.append({
                 "name": "Localhost" if is_loopback else ("IPv6 Adapter" if is_ipv6 else "Primary Adapter"),
                 "ip": ip,
@@ -54,7 +75,7 @@ def get_active_network_identity(manager_url: str = "") -> Dict[str, Any]:
 
     primary_ipv4 = None
     primary_ipv6 = None
-    active_interface_name = "Primary Adapter"
+    active_interface_name = None
 
     # Use UDP connect probe to discover OS routing table's chosen local source IP
     probe_host = "1.1.1.1"
@@ -74,6 +95,9 @@ def get_active_network_identity(manager_url: str = "") -> Dict[str, Any]:
         s.close()
         if sock_ip and not sock_ip.startswith("127."):
             primary_ipv4 = sock_ip
+            active = next((item for item in interfaces if item.get('ip') == sock_ip), None)
+            if active:
+                active_interface_name = active.get('name')
     except Exception:
         pass
 
@@ -82,7 +106,7 @@ def get_active_network_identity(manager_url: str = "") -> Dict[str, Any]:
         for iface in interfaces:
             if iface["family"] == "IPv4" and not iface["is_loopback"]:
                 primary_ipv4 = iface["ip"]
-                active_interface_name = iface["name"]
+                active_interface_name = iface.get("name")
                 break
 
     for iface in interfaces:
@@ -93,6 +117,8 @@ def get_active_network_identity(manager_url: str = "") -> Dict[str, Any]:
     if not primary_ipv4:
         primary_ipv4 = "127.0.0.1"
         active_interface_name = "Loopback"
+
+    active_interface_name = active_interface_name or "Unknown interface"
 
     return {
         "hostname": hostname,

@@ -37,7 +37,7 @@
 <header class="topbar">
   <button id="menu" class="icon" aria-label="Open navigation" aria-expanded="false">☰</button>
   <a href="/" class="brand">ZTA<span>.</span></a>
-  <span class="module">Zero Trust Security Platform</span>
+  <span class="module" id="page-title">Overview</span>
   <div class="account">
     <label class="role-selector-wrap" title="Authenticated access">
       <span class="role-label">RBAC Role:</span>
@@ -56,12 +56,18 @@
 </header>
 
 <nav id="navigation" hidden>
-  <button data-view="dashboard">Security Dashboard</button>
+  <button data-view="dashboard">Overview</button>
   <button data-view="agents">Endpoint Inventory</button>
   <button data-view="events">Security Events</button>
-  <button data-view="rules_policies">Rules &amp; Policies</button>
+  <button id="nav-rules" data-view="rules_policies" data-subtab="rules">Rules</button>
+  <button id="nav-policies" data-view="rules_policies" data-subtab="policies">Policies</button>
   <button data-view="incidents">Alerts &amp; Incidents</button>
   <button data-view="timeline">Unified Timeline</button>
+  <button data-view="mitre">MITRE ATT&amp;CK</button>
+  <button data-view="threat_intel">Threat Intelligence</button>
+  <button data-view="reports">Reports</button>
+  <button data-view="users">Users</button>
+  <button data-view="settings">Settings</button>
   <button data-view="audit">Audit Log</button>
   <button data-view="services">Background Services</button>
 </nav>
@@ -74,6 +80,8 @@
     <button class="tab" data-view="rules_policies" role="tab" aria-selected="false">Rules &amp; Policies</button>
     <button class="tab" data-view="incidents" role="tab" aria-selected="false">Alerts</button>
     <button class="tab" data-view="timeline" role="tab" aria-selected="false">Timeline</button>
+    <button class="tab" data-view="mitre" role="tab" aria-selected="false">MITRE</button>
+    <button class="tab" data-view="reports" role="tab" aria-selected="false">Reports</button>
     <button class="tab" data-view="audit" role="tab" aria-selected="false">Audit Log</button>
     <button class="tab" data-view="services" role="tab" aria-selected="false">Services</button>
   </div>
@@ -185,7 +193,7 @@
       </div>
       <div class="subtab-actions">
         <button id="btn-create-rule" class="btn-create primary">+ Create Rule</button>
-        <button id="btn-create-policy" class="btn-create primary" hidden>+ Create Policy</button>
+        <button id="btn-create-policy" class="btn-create primary" hidden>+ Add New Policy</button>
       </div>
     </div>
 
@@ -259,7 +267,7 @@
   </section>
 
   <!-- Table Panel (Used for all views: rules, policies, agents, alerts, etc.) -->
-  <section class="panel table-panel">
+  <section id="data-view" class="panel table-panel">
     <div class="panel-heading">
       <h2 id="table-title">Security alerts</h2>
       <span id="result-count" class="subtle"></span>
@@ -296,7 +304,7 @@
     <div class="form-row">
       <div class="form-group flex-1">
         <label for="rb-code">Rule Code / Identifier <span class="req">*</span></label>
-        <input id="rb-code" type="text" required placeholder="RULE-0016" pattern="[A-Za-z0-9_-]+">
+        <input id="rb-code" type="text" required placeholder="RULE-0016" pattern="[A-Za-z0-9_\-]+">
       </div>
       <div class="form-group flex-2">
         <label for="rb-name">Rule Name <span class="req">*</span></label>
@@ -388,7 +396,7 @@
     <div class="form-row">
       <div class="form-group flex-1">
         <label for="pb-code">Policy Code / Identifier <span class="req">*</span></label>
-        <input id="pb-code" type="text" required placeholder="POL-005" pattern="[A-Za-z0-9_-]+">
+        <input id="pb-code" type="text" required placeholder="POL-005" pattern="[A-Za-z0-9_\-]+">
       </div>
       <div class="form-group flex-2">
         <label for="pb-name">Policy Name <span class="req">*</span></label>
@@ -456,6 +464,11 @@
     </div>
 
     <div class="form-row">
+      <div class="form-group flex-1">
+        <label for="pb-risk-threshold">Risk Threshold (0-100) <span class="req">*</span></label>
+        <input id="pb-risk-threshold" type="number" min="0" max="100" value="85" required>
+        <span class="subtle">Policy triggers when agent risk score meets or exceeds this value.</span>
+      </div>
       <div class="form-group flex-1">
         <label for="pb-priority">Selection Priority (0-10000)</label>
         <input id="pb-priority" type="number" min="0" max="10000" value="1000" required>

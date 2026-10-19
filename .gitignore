@@ -4,6 +4,19 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .test-temp*/
+build/
+dist/
+*.egg-info/
+
+# Task working directories (development phase snapshots — safe to delete)
+zta-task*/
+tmp/
+t6base/
+.t6s/
+.t6s
+.t7*/
+.t8*/
+.task*/
 
 # Runtime state
 *.db
@@ -20,3 +33,7 @@ __pycache__/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Local Graphify generated output
+graphify-out/
+.venv-graphify/

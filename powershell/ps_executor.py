@@ -34,6 +34,7 @@ class PSResult:
     exit_code: int = 0
     verification: Optional[str] = None
     dry_run: bool = False
+    error_code: Optional[str] = None
 
 
 class PowerShellExecutor:
@@ -52,6 +53,8 @@ class PowerShellExecutor:
         "KILL_PROCESS": {"ProcessName", "ProcessId", "ProcessPath", "ProcessCreatedAt", "AgentProcessId"},
         "NETWORK_ISOLATION": {"Action", "ManagerIP", "ManagerPort"},
         "LOCAL_ACCOUNT_CONTROL": {"Action", "UserName", "Domain", "LogoutExistingSessions", "AgentAccount"},
+        "LOCK_WORKSTATION": {"UserName", "SessionId"},
+        "QUARANTINE_FILE": {"FilePath", "ExpectedSha256"},
     }
 
     # Regex pattern to reject command injection characters (;, |, &, $, `, <, >)
@@ -95,13 +98,49 @@ class PowerShellExecutor:
         }
         original_action = action_type
         action_type = aliases.get(action_type, action_type)
-        if action_type not in self.ALLOWLISTED_TEMPLATES:
+        native_actions = {"LOCK_WORKSTATION", "QUARANTINE_FILE"}
+        if action_type not in self.ALLOWLISTED_TEMPLATES and action_type not in native_actions:
             raise UnknownTemplateError(f"Action '{action_type}' is not an allowlisted template. Allowed: {list(self.ALLOWLISTED_TEMPLATES.keys())}")
 
         params = params or {}
         if not isinstance(params, dict) or set(params) - self.PARAMETERS[action_type]:
             raise InvalidParameterError("Unsupported template parameter")
         self._validate_parameters(params)
+        if action_type == "LOCK_WORKSTATION":
+            user, session_id = params.get("UserName"), str(params.get("SessionId", ""))
+            if not isinstance(user, str) or not user.strip() or not session_id.isdecimal() or int(session_id) <= 0:
+                raise InvalidParameterError("Workstation lock requires an exact user and positive session ID")
+            if dry_run:
+                return PSResult(True, "[DRY_RUN] Validated native workstation lock; no action executed", dry_run=True)
+            if os.name != "nt":
+                return PSResult(False, "", "Workstation lock is unavailable on this operating system", 1, "UNAVAILABLE", error_code="UNSUPPORTED_OS")
+            import ctypes
+            target = WindowsSessions().resolve(user, session_id=int(session_id))
+            current_session = ctypes.c_ulong()
+            if not ctypes.windll.kernel32.ProcessIdToSessionId(os.getpid(), ctypes.byref(current_session)):
+                return PSResult(False, "", "Unable to resolve agent service session", 1, "UNKNOWN", error_code="SESSION_LOOKUP_FAILED")
+            if current_session.value != target["session_id"]:
+                return PSResult(False, "", "Agent is not running in the target interactive session", 1, "UNAVAILABLE", error_code="SESSION_ISOLATION")
+            if not ctypes.windll.user32.LockWorkStation():
+                return PSResult(False, "", "LockWorkStation failed", ctypes.get_last_error() or 1, "EXECUTION_FAILED", error_code="WINDOWS_API_ERROR")
+            return PSResult(False, "LockWorkStation returned successfully", "Windows does not expose a reliable independent lock-state verification here", 0,
+                            "EXECUTION_COMPLETED_UNVERIFIED", error_code="UNVERIFIED_POSTCONDITION")
+        if action_type == "QUARANTINE_FILE":
+            path, expected = params.get("FilePath"), params.get("ExpectedSha256")
+            if (not isinstance(path, str) or not path or "\x00" in path or not isinstance(expected, str)
+                    or len(expected) != 64 or any(ch not in "0123456789abcdefABCDEF" for ch in expected)):
+                raise InvalidParameterError("File quarantine requires an exact path and SHA-256 identity")
+            if dry_run:
+                return PSResult(True, "[DRY_RUN] Validated file quarantine contract; no action executed", dry_run=True)
+            from zta.powershell.quarantine import FileQuarantine
+            handler = FileQuarantine()
+            try:
+                handler.validate(path, expected)
+                evidence = handler.quarantine(path, expected)
+                import json
+                return PSResult(True, json.dumps(evidence, sort_keys=True), verification="FILE_QUARANTINED")
+            except Exception as exc:
+                return PSResult(False, "", str(exc), 1, "QUARANTINE_NOT_VERIFIED", error_code=type(exc).__name__)
         if action_type == "NETWORK_ISOLATION":
             if os.environ.get('ZTA_ENABLE_NETWORK_ISOLATION','false').lower() != 'true':
                 return PSResult(False,"","Network isolation is unavailable (disabled pending VM-console validation)",1,"UNAVAILABLE",dry_run)

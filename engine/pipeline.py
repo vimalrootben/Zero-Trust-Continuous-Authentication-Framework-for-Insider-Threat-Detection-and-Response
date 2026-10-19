@@ -15,24 +15,51 @@ def process(engine, event, execution_source='AGENT_ONLINE', synced_at=None):
     now = datetime.now(timezone.utc).isoformat()
     agent_id = event.agent.id
     alerts = []
-    with repo.db.transaction() as conn:
-        state = conn.execute('SELECT processing_state FROM zta_events WHERE event_id=?', (event.event_id,)).fetchone()
-        if state and state[0] == 'COMPLETED':
+
+    # --- Read-only pre-flight: do NOT hold the IMMEDIATE write lock during these ---
+    # Cheap early-exit check on current state (re-verified inside the write tx below).
+    with repo.db.get_connection() as rconn:
+        _state = rconn.execute(
+            'SELECT processing_state FROM zta_events WHERE event_id=?', (event.event_id,)
+        ).fetchone()
+        if _state and _state[0] == 'COMPLETED':
             return []
-        # Restore persisted risk before each unit of work, including after restart/rollback.
-        row = conn.execute('SELECT new_score FROM risk_history WHERE agent_id=? ORDER BY timestamp DESC, id DESC LIMIT 1', (agent_id,)).fetchone()
-        engine.risk_engine._scores[agent_id] = row[0] if row else 0
-        engine._reload_policies()
-        event_data = context(event)
-        # Rebuild the existing correlation window from committed evidence on restart/retry.
+        # Restore persisted risk score before work, outside the write lock.
+        _risk_row = rconn.execute(
+            'SELECT new_score FROM risk_history WHERE agent_id=? ORDER BY timestamp DESC, id DESC LIMIT 1',
+            (agent_id,),
+        ).fetchone()
+        engine.risk_engine._scores[agent_id] = _risk_row[0] if _risk_row else 0
+        # Rebuild the correlation window from committed evidence on restart/retry.
+        # This loads up to 1000 large JSON rows — keep it outside the IMMEDIATE write lock.
         from zta.engine.correlation.engine import ZTACorrelationEngine
         from zta.engine.events.serialization import decode
         engine.correlation_engine = ZTACorrelationEngine(window_seconds=300)
-        previous = conn.execute("SELECT normalized_json FROM zta_events WHERE agent_id=? AND processing_state='COMPLETED' AND timestamp<=? ORDER BY timestamp DESC LIMIT 1000", (agent_id, event.timestamp.isoformat())).fetchall()
-        for old in reversed(previous):
-            if old[0]:
-                engine.correlation_engine.process_event(decode(json.loads(old[0])))
-        findings = engine.correlation_engine.process_event(event)
+        _previous = rconn.execute(
+            "SELECT normalized_json FROM zta_events WHERE agent_id=? AND processing_state='COMPLETED'"
+            " AND timestamp<=? ORDER BY timestamp DESC LIMIT 1000",
+            (agent_id, event.timestamp.isoformat()),
+        ).fetchall()
+    for old in reversed(_previous):
+        if old[0]:
+            engine.correlation_engine.process_event(decode(json.loads(old[0])))
+    findings = engine.correlation_engine.process_event(event)
+
+    with repo.db.transaction() as conn:
+        # Re-verify under write lock to prevent duplicate work by concurrent workers.
+        state = conn.execute(
+            'SELECT processing_state FROM zta_events WHERE event_id=?', (event.event_id,)
+        ).fetchone()
+        if state and state[0] == 'COMPLETED':
+            return []
+        # Re-read risk score under lock in case a concurrent writer updated it.
+        row = conn.execute(
+            'SELECT new_score FROM risk_history WHERE agent_id=? ORDER BY timestamp DESC, id DESC LIMIT 1',
+            (agent_id,),
+        ).fetchone()
+        engine.risk_engine._scores[agent_id] = row[0] if row else 0
+        engine._reload_policies()
+        event_data = context(event)
         for finding in findings:
             risk = engine.risk_engine.apply_delta(agent_id, finding.risk_delta, finding.description)
             repo.save_risk_event(risk)
@@ -47,25 +74,30 @@ def process(engine, event, execution_source='AGENT_ONLINE', synced_at=None):
                     trace = engine.evaluator.explain(rule['condition'], event_data)
                 else:
                     trace = {'result': False, 'reason': 'No executable condition configured'}
-            except (ValueError, TypeError) as exc:
-                trace = {'result': False, 'error': str(exc)}
+            except Exception as exc:
+                # Evaluation failures are evidence, but never positive evidence.
+                trace = {'result': False, 'evaluation_error': type(exc).__name__, 'error': str(exc)}
+            evaluation_error = trace.get('evaluation_error') or trace.get('error')
+            outcome = 'EVALUATION_ERROR' if evaluation_error else ('MATCH' if trace['result'] else 'NO_MATCH')
             evaluation = dict(evaluation_id=identifier('re', event.event_id, rule['rule_id']),
                               event_id=event.event_id, rule_id=rule['rule_id'], agent_id=agent_id,
-                              result=bool(trace['result']), trace=trace, timestamp=now, execution_source=execution_source)
-            conn.execute('INSERT OR IGNORE INTO rule_evaluations VALUES (?,?,?,?,?,?,?,?)',
-                         (evaluation['evaluation_id'], event.event_id, rule['rule_id'], agent_id, int(trace['result']), json.dumps(trace), now, execution_source))
+                              result=bool(trace['result']), outcome=outcome, trace=trace, timestamp=now,
+                              execution_source=execution_source, rule_version=rule.get('current_version', 1))
+            conn.execute('''INSERT OR IGNORE INTO rule_evaluations
+                (evaluation_id,event_id,rule_id,agent_id,result,trace_json,timestamp,execution_source,outcome,error_code,rule_version)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)''',
+                         (evaluation['evaluation_id'], event.event_id, rule['rule_id'], agent_id, int(trace['result']),
+                          json.dumps(trace), now, execution_source, outcome, str(evaluation_error) if evaluation_error else None,
+                          rule.get('current_version', 1)))
             conn.execute('UPDATE rules SET last_evaluated=? WHERE rule_id=?', (now, rule['rule_id']))
             repo.save_audit('RULE_EVALUATED', rule['name'], agent_id, details=evaluation, execution_source=execution_source)
             hub.broadcast('rule.evaluated', evaluation)
             if not trace['result']:
                 continue
             match_id = identifier('rm', event.event_id, rule['rule_id'])
-            fingerprint_fields = {
-                'agent_id': agent_id, 'rule_id': rule['rule_id'], 'event_type': event.event_type,
-                'user': event_data.get('user'), 'process': event_data.get('process'),
-                'source_ip': event_data.get('source_ip'), 'destination_ip': event_data.get('destination_ip'),
-                'source_port': event_data.get('source_port'), 'destination_port': event_data.get('destination_port'),
-            }
+            # One logical alert per stable event/rule identity. Different security
+            # events must not collapse merely because their observable fields match.
+            fingerprint_fields = {'event_id': event.event_id, 'rule_id': rule['rule_id']}
             alert_fingerprint = hashlib.sha256(json.dumps(fingerprint_fields, sort_keys=True, default=str).encode()).hexdigest()
             existing_incident = conn.execute(
                 "SELECT * FROM incidents WHERE alert_fingerprint=? AND status NOT IN ('RESOLVED','CLOSED','FALSE_POSITIVE') ORDER BY last_seen DESC LIMIT 1",
@@ -124,7 +156,8 @@ def process(engine, event, execution_source='AGENT_ONLINE', synced_at=None):
                             if execution_source == 'AGENT_OFFLINE' and not getattr(engine, 'offline_enforcement', False):
                                 pe['status'] = 'HISTORICAL_ONLY'
                                 pe['reason'] += '; historical sync does not dispatch new responses'
-                            elif execution_source == 'AGENT_OFFLINE' and decision.action in ('KILL_PROCESS','LOGOUT_USER','LOGOFF_USER','LOGOUT_SESSION','LOCK_LOCAL_ACCOUNT','UNLOCK_LOCAL_ACCOUNT'):
+                            elif execution_source == 'AGENT_OFFLINE' and decision.action in ('KILL_PROCESS','LOGOUT_USER','LOGOFF_USER','LOGOUT_SESSION',
+                                    'LOCK_LOCAL_ACCOUNT','UNLOCK_LOCAL_ACCOUNT','LOCK_WORKSTATION','QUARANTINE_FILE'):
                                 pe['status'] = 'BLOCKED'
                                 pe['reason'] += '; offline destructive action disabled pending native verification'
                             else:
@@ -154,5 +187,7 @@ def process(engine, event, execution_source='AGENT_ONLINE', synced_at=None):
             hub.broadcast('alert.created', incident)
         repo.update_service_heartbeat('Telemetry Processor', activity=True)
         repo.update_service_heartbeat('Rule Engine', activity=True)
-        conn.execute("UPDATE zta_events SET processing_state='COMPLETED', processing_error=NULL WHERE event_id=?", (event.event_id,))
+        conn.execute("""UPDATE zta_events SET processing_state='COMPLETED', processing_error=NULL,
+            processing_started_at=NULL, processing_next_attempt_at=NULL, processing_worker_id=NULL
+            WHERE event_id=?""", (event.event_id,))
     return alerts

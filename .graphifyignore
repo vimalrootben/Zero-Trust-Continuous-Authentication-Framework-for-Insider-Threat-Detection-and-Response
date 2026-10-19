@@ -1,0 +1,21 @@
+# Keep the index focused on current code, not development copies or runtime state.
+.git/
+.venv/
+.venv-graphify/
+__pycache__/
+.pytest_cache/
+graphify-out/
+build/
+dist/
+logs/
+tmp/
+t6base/
+.t*/
+.task*/
+.test-temp*/
+zta-task*/
+*.env
+.env
+*.db
+*.db-*
+*.log

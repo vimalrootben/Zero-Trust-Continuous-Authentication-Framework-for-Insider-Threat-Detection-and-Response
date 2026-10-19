@@ -103,7 +103,7 @@ def test_alert_only_never_dispatches_and_username_only_resolves_on_agent(runtime
 def test_authentication_expiry_and_wrong_agent(runtime):
     server,agent=runtime
     url=agent.manager_url
-    assert requests.post(url+'/api/v1/agents/heartbeat',json={'agent_id':'endpoint'}).status_code==400
+    assert requests.post(url+'/api/v1/agents/heartbeat',json={'agent_id':'endpoint'}).status_code==401
     assert requests.post(url+'/api/zta/commands',json={'agent_id':'endpoint','action':'LOGOUT_USER'},headers={'X-User-Role':'ADMIN'}).status_code==401
     executor=MagicMock();agent.command_receiver.ps_executor=executor
     cmd={'command_id':'x','agent_id':'endpoint','action_type':'LOGOUT_USER','params':{'UserName':'user','SessionId':'7'},'status':'DISPATCHED','expires_at':(datetime.now(timezone.utc)-timedelta(seconds=1)).isoformat()}

@@ -26,20 +26,26 @@ if (-not (Test-Path $config)) {
     $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureToken)
     try {
         $token = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)
-        if (-not $token -or $token -match '[\r\n]') { throw 'Invalid credential' }
+        if (-not $token -or $token.Length -lt 32 -or $token -match '[\r\n]') { throw 'Agent credential must be at least 32 characters' }
         @"
 ZTA_MANAGER_URL=$ManagerUrl
 ZTA_AGENT_ID=$AgentId
 ZTA_AGENT_TOKEN=$token
 ZTA_LOCAL_DB_PATH=$InstallDir\storage\zta_agent_offline.db
 ZTA_HEARTBEAT_INTERVAL=15
+ZTA_UPLOAD_INTERVAL=2
+ZTA_TELEMETRY_BATCH_SIZE=50
+ZTA_COMMAND_QUEUE_SIZE=100
+ZTA_RECONNECT_MAX_DELAY=300
+ZTA_RECONNECT_JITTER=0.2
+ZTA_LOG_LEVEL=INFO
 "@ | Set-Content -Encoding utf8 $config
     } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr); $token = $null }
 }
 $action = New-ScheduledTaskAction -Execute $agentPython -Argument "-m zta.agent.agent_daemon --config `"$config`"" -WorkingDirectory $InstallDir
 $trigger = New-ScheduledTaskTrigger -AtStartup
 $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
-$settings = New-ScheduledTaskSettingsSet -RestartCount 100 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
+$settings = New-ScheduledTaskSettingsSet -RestartCount 100 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 Register-ScheduledTask -TaskName 'ZTA Endpoint Agent' -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
 Start-ScheduledTask -TaskName 'ZTA Endpoint Agent'
 Write-Host 'Agent task registered and started. Confirm heartbeat, collector status and command verification in the manager.'

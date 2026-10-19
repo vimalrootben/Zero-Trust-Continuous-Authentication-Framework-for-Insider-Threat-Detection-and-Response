@@ -133,6 +133,36 @@ class OperatorAuth:
                 raise ValueError("Username already exists") from exc
         return {"user_id": user_id, "username": username, "role": role, "enabled": True, "permissions": sorted(ROLE_PERMISSIONS[role]), "created_at": now}
 
+    def toggle_user_enabled(self, user_id, enabled=None):
+        with self.db.get_connection() as conn:
+            row = conn.execute("SELECT user_id,username,role,enabled FROM operator_users WHERE user_id=?", (user_id,)).fetchone()
+            if not row:
+                raise ValueError("User not found")
+            new_enabled = int(not row["enabled"] if enabled is None else bool(enabled))
+            conn.execute("UPDATE operator_users SET enabled=? WHERE user_id=?", (new_enabled, user_id))
+            if not new_enabled:
+                conn.execute("DELETE FROM operator_sessions WHERE user_id=?", (user_id,))
+        return {"user_id": row["user_id"], "username": row["username"], "role": row["role"], "enabled": bool(new_enabled)}
+
+    def reset_password(self, user_id, new_password):
+        new_hash = _password_hash(new_password)
+        with self.db.get_connection() as conn:
+            row = conn.execute("SELECT user_id,username,role,enabled FROM operator_users WHERE user_id=?", (user_id,)).fetchone()
+            if not row:
+                raise ValueError("User not found")
+            conn.execute("UPDATE operator_users SET password_hash=? WHERE user_id=?", (new_hash, user_id))
+            conn.execute("DELETE FROM operator_sessions WHERE user_id=?", (user_id,))
+        return {"status": "PASSWORD_RESET", "user_id": row["user_id"], "username": row["username"]}
+
+    def revoke_user_sessions(self, user_id):
+        with self.db.get_connection() as conn:
+            row = conn.execute("SELECT user_id,username,role,enabled FROM operator_users WHERE user_id=?", (user_id,)).fetchone()
+            if not row:
+                raise ValueError("User not found")
+            cursor = conn.execute("DELETE FROM operator_sessions WHERE user_id=?", (user_id,))
+            revoked_count = cursor.rowcount
+        return {"status": "SESSIONS_REVOKED", "user_id": row["user_id"], "username": row["username"], "revoked_sessions": revoked_count}
+
     def list_users(self):
         with self.db.get_connection() as conn:
             rows = conn.execute("SELECT user_id,username,role,enabled,created_at,created_by,last_login_at FROM operator_users ORDER BY username COLLATE NOCASE").fetchall()

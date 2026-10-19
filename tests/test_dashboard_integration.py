@@ -3,6 +3,7 @@ import json
 import threading
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 
 from zta.api.server import create_zta_server
@@ -104,3 +105,27 @@ def test_live_ports_manual_allowlisted_execution_and_admin_clear(tmp_path):
         assert request(base, '/api/zta/admin/database-clear', {'confirmation_token':token})[0] == 400
         audit = request(base, '/api/zta/audit')[1]['audit_logs']
         assert audit[0]['event_type'] == 'DATABASE_CLEARED'
+
+
+def test_concurrent_heartbeat_telemetry_and_dashboard_polling(tmp_path):
+    with running(tmp_path / 'api.db') as base:
+        heartbeat = {'agent_id': 'abc', 'hostname': 'Laptop', 'connection_state': 'SYNCING', 'queue_depth': 1}
+        telemetry = [
+            {'id': f'concurrent-{index}', 'agent': {'id': 'abc', 'name': 'Laptop'},
+             'event_type': 'PROCESS_CREATION', 'timestamp': '2026-10-17T00:00:00+00:00'}
+            for index in range(25)
+        ]
+
+        def invoke(kind):
+            if kind == 'heartbeat':
+                return request(base, '/api/v1/agents/heartbeat', heartbeat)[0]
+            if kind == 'telemetry':
+                return request(base, '/api/v1/telemetry/bulk', telemetry)[0]
+            return request(base, '/api/zta/overview')[0]
+
+        with ThreadPoolExecutor(max_workers=12) as executor:
+            statuses = list(executor.map(invoke, ['heartbeat'] * 12 + ['telemetry'] * 4 + ['overview'] * 12))
+        assert all(status in (200, 201) for status in statuses)
+        overview = request(base, '/api/zta/overview')[1]
+        assert overview['online_agents'] == 1
+        assert overview['total_events'] == len(telemetry)

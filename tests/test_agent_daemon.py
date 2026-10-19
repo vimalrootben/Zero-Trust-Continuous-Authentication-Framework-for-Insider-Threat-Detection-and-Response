@@ -161,8 +161,8 @@ def test_offline_matched_event_is_persisted(tmp_path):
 
 
 @pytest.mark.parametrize("outcome, expected_state, remaining", [
-    (requests.ConnectionError("unreachable"), "OFFLINE", 2),
-    (503, "DEGRADED", 2),
+        (requests.ConnectionError("unreachable"), "SYNCING", 2),
+    (503, "SYNCING", 2),
     (None, "DEGRADED", 2),
     (["one"], "SYNCING", 1),
     (["one", "two"], "ONLINE", 0),

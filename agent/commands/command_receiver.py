@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
-from zta.powershell.ps_executor import InvalidParameterError, PSResult, PowerShellExecutor, UnknownTemplateError
+from zta.powershell.ps_executor import InvalidParameterError, PSExecutionTimeoutError, PSResult, PowerShellExecutor, UnknownTemplateError
 from zta.agent.execution.script_executor import AllowlistedScriptExecutor
 
 
@@ -26,6 +26,9 @@ class CommandExecutionReport:
     correlation_id: str = ""
     failure_reason: Optional[str] = None
     dry_run: bool = False
+    completed_at: str = ""
+    verification_status: Optional[str] = None
+    error_code: Optional[str] = None
 
 
 class AgentCommandReceiver:
@@ -82,6 +85,13 @@ class AgentCommandReceiver:
                 params = {**params, "ManagerIP": self.manager_address}
 
             if action_type == "DEMO_SCRIPT":
+                if dry_run:
+                    from zta.agent.execution.validators import validate_script_request
+                    script_id = params.get('script_id') or command_payload.get('script_id') or ''
+                    validate_script_request(script_id, params)
+                    return CommandExecutionReport(command_id, "DEMO_SCRIPT", "PREVIEW",
+                                                  "Allowlisted script request validated; no action executed",
+                                                  dry_run=True, verification_status="NOT_EXECUTED")
                 script_res = self.script_executor.execute_script(command_payload)
                 return CommandExecutionReport(
                     command_id=command_id,
@@ -94,14 +104,18 @@ class AgentCommandReceiver:
                     correlation_id=script_res.correlation_id,
                     failure_reason=script_res.error,
                     dry_run=dry_run,
+                    completed_at=script_res.completed_at,
+                    verification_status="VERIFIED_SUCCESS" if script_res.status == "SUCCESS" else "EXECUTION_FAILED",
+                    error_code=str(script_res.exit_code) if script_res.exit_code not in (None, 0) else None,
                 )
             else:
                 res: PSResult = self.ps_executor.execute_template(action_type=str(action_type), params=params, dry_run=dry_run)
 
+                unverified = res.verification in ("EXECUTION_COMPLETED_UNVERIFIED", "UNKNOWN")
                 return CommandExecutionReport(
                     command_id=command_id,
                     action_type=str(action_type),
-                    status=("PREVIEW" if dry_run else "SUCCESS") if res.success else "FAILED",
+                    status=("PREVIEW" if dry_run else "SUCCESS") if res.success else ("UNKNOWN" if unverified else "FAILED"),
                     output=res.output if res.success else f"Execution failed: {res.error}",
                     error=res.error,
                     executed_at="" if dry_run else now_str,
@@ -109,18 +123,31 @@ class AgentCommandReceiver:
                     correlation_id=str(command_payload.get("correlation_id") or params.get("correlation_id") or ""),
                     failure_reason=res.error,
                     dry_run=dry_run,
+                    completed_at="" if dry_run else datetime.now(timezone.utc).isoformat(),
+                    verification_status=("NOT_EXECUTED" if dry_run else "VERIFIED_SUCCESS" if res.success
+                                         else "UNKNOWN" if unverified else "VERIFICATION_FAILED"),
+                    error_code=res.error_code or (str(res.exit_code) if res.exit_code else None),
                 )
 
         except (UnknownTemplateError, InvalidParameterError) as err:
             return CommandExecutionReport(
                 command_id=command_id,
                 action_type=str(action_type),
-                status="FAILED",
+                status="REJECTED",
                 output="",
                 error=f"Command Validation Error: {str(err)}",
                 failure_reason=str(err),
                 executed_at=now_str,
+                completed_at=now_str,
+                verification_status="REJECTED",
+                error_code="VALIDATION_ERROR",
             )
+        except PSExecutionTimeoutError as err:
+            return CommandExecutionReport(
+                command_id=str(command_payload.get("command_id", "cmd-unknown")), action_type=str(action_type),
+                status="UNKNOWN", output="", error=str(err), failure_reason=str(err), executed_at=now_str,
+                completed_at=datetime.now(timezone.utc).isoformat(), verification="UNKNOWN",
+                verification_status="UNKNOWN", error_code="EXECUTION_TIMEOUT")
         except Exception as ex:
             return CommandExecutionReport(
                 command_id=str(command_payload.get("command_id", "cmd-unknown")),
@@ -130,4 +157,7 @@ class AgentCommandReceiver:
                 error=f"Unexpected Execution Error: {str(ex)}",
                 failure_reason=str(ex),
                 executed_at=now_str,
+                completed_at=datetime.now(timezone.utc).isoformat(),
+                verification_status="EXECUTION_FAILED",
+                error_code=type(ex).__name__,
             )

@@ -114,9 +114,12 @@ class ZTAEventAdapter:
 
         # Extract Process Context
         proc_raw = alert.get("process") if isinstance(alert.get("process"), dict) else {}
+        data_proc = data.get("process") if isinstance(data, dict) else None
+        if isinstance(data_proc, dict):
+            data_proc = data_proc.get("name")
         proc_name = (
             event_data.get("image")
-            or (data.get("process") if isinstance(data, dict) else None)
+            or (data_proc if isinstance(data_proc, str) else None)
             or proc_raw.get("name")
             or (alert.get("process") if isinstance(alert.get("process"), str) else None)
         )
