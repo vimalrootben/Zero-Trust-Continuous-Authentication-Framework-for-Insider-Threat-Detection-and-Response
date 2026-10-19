@@ -1,6 +1,6 @@
 # Zero Trust Architecture (ZTA) Platform
 
-A lightweight, high-performance Zero Trust Endpoint Detection & Response (EDR) platform derived from Wazuh architecture. The repository has been streamlined from over 6,500 upstream files down to **98 focused files** (~98.5% reduction), eliminating unused C/C++ daemons, legacy wrappers, and redundant workflows while preserving **100% of the active Python ZTA runtime, detection rules, adaptive policies, SQLite persistence, PowerShell response scripts, web dashboard, and test suites**.
+A lightweight, high-performance Zero Trust Endpoint Detection & Response (EDR) platform derived from Wazuh architecture. The repository provides a streamlined, production-grade architecture preserving **100% of the active Python ZTA runtime, detection rules, adaptive policies, SQLite persistence, PowerShell response scripts, web dashboard, and test suites**.
 
 ---
 
@@ -30,11 +30,15 @@ A lightweight, high-performance Zero Trust Endpoint Detection & Response (EDR) p
 │   ├── __main__.py                # python -m agent entry point
 │   ├── agent_daemon.py            # Background agent loop & heartbeats
 │   ├── collectors.py              # Windows wevtutil / Sysmon event collectors
+│   ├── connection.py              # Explicit connection state machine
 │   ├── network_identity.py        # Hostname & IP detection
-│   └── state.py                   # Agent lifecycle & sync state machine
+│   ├── operational_logging.py     # Structured JSON logging & rotation
+│   ├── state.py                   # Agent lifecycle & sync state machine
+│   └── workers.py                 # Background worker supervisor & collectors
 ├── api/                           # Manager REST & Ingestion API
 │   ├── __init__.py
 │   ├── __main__.py                # python -m api entry point
+│   ├── auth.py                    # Operator auth, RBAC & session management
 │   ├── background.py              # Background worker thread & service monitor
 │   ├── ingestion.py               # Bulk telemetry ingestion & durable staging
 │   └── server.py                  # HTTP/WebSocket API server routes
@@ -86,46 +90,64 @@ A lightweight, high-performance Zero Trust Endpoint Detection & Response (EDR) p
 ├── powershell/                    # Windows Active Response System
 │   ├── scripts/                   # Production PowerShell response scripts
 │   │   ├── kill_process.ps1       # Process termination with ownership checks
+│   │   ├── local_account_control.ps1 # Local account containment & restore
 │   │   ├── logoff_user.ps1        # WTS session termination & verification
 │   │   └── network_isolation.ps1  # Endpoint isolation script
 │   ├── __init__.py
 │   ├── ps_executor.py             # Script runner with output capture
+│   ├── quarantine.py              # Conservative local file quarantine handler
 │   └── windows_sessions.py        # WTS query & session identity validation
 ├── ruleset/                       # Detection & Test Content
 │   └── demo_rules.json            # MITRE ATT&CK & benign demo rule definitions
 ├── scripts/                       # Verification & Demo Framework
-│   └── demo/
-│       ├── cleanup_demo.py        # Demo artifact cleanup
-│       ├── trigger_file_test.py   # Safe file modify/create trigger
-│       ├── trigger_full_pipeline_test.py # End-to-end pipeline test trigger
-│       ├── trigger_listening_port_test.py # Safe socket listener trigger
-│       ├── trigger_network_test.py # Safe network connection trigger
-│       └── trigger_process_test.py # Safe benign process trigger
+│   ├── demo/
+│   │   ├── cleanup_demo.py        # Demo artifact cleanup
+│   │   ├── trigger_file_test.py   # Safe file modify/create trigger
+│   │   ├── trigger_full_pipeline_test.py # End-to-end pipeline test trigger
+│   │   ├── trigger_listening_port_test.py # Safe socket listener trigger
+│   │   ├── trigger_network_test.py # Safe network connection trigger
+│   │   └── trigger_process_test.py # Safe benign process trigger
+│   ├── build_release_package.py   # Distribution packaging utility
+│   ├── start_zta_local.py         # Local multi-service runner
+│   └── test_windows.ps1           # Windows manual test harness
 ├── storage/                       # Relational Database Storage
 │   ├── __init__.py
 │   └── database.py                # SQLite schema, migrations & repository
-├── tests/                         # Automated Pytest Suite (113 tests)
+├── tests/                         # Automated Pytest Suite (227 tests)
 │   ├── conftest.py                # Shared fixtures & test database setup
 │   ├── http_support.py            # Ephemeral HTTP server test fixtures
 │   ├── test_adapter.py            # Wazuh adapter & event parsing tests
 │   ├── test_agent_daemon.py       # Agent lifecycle & collector tests
 │   ├── test_agent_engine.py       # Agent execution & installer tests
+│   ├── test_agent_runtime_failures.py # Agent failure isolation & recovery
 │   ├── test_background_completion.py # Pipeline completion & evidence tests
 │   ├── test_dashboard_integration.py # Dashboard API & WebSocket tests
 │   ├── test_demo_framework_and_analytics.py # Safe execution & analytics tests
 │   ├── test_full_pipeline.py      # End-to-end event evaluation tests
+│   ├── test_operator_auth.py      # Operator RBAC & session revocation tests
 │   ├── test_powershell_executor.py # PowerShell active response tests
 │   ├── test_real_logic_regressions.py # Regression & logic safety tests
 │   ├── test_rules_policies_management.py # Rule/policy CRUD & condition tests
+│   ├── test_safety_defaults.py    # Default configuration security tests
 │   ├── test_storage_api.py        # Database migration & storage tests
+│   ├── test_task2_agent_workers.py # Worker supervisor & event snapshot tests
+│   ├── test_task3_communication.py # Comm state machine & reconnect tests
+│   ├── test_task4_detection_pipeline.py # Detection pipeline & recovery tests
+│   ├── test_task5_response_engine.py # Response delivery & quarantine tests
+│   ├── test_task6_observability.py # Structured logging & WebSocket client tests
+│   ├── test_task7_dashboard.py    # Dashboard truthful analytics tests
+│   ├── test_task8_integration.py  # SQLite concurrency & mTLS validation tests
 │   └── test_zta_end_to_end_scenarios.py # Multi-agent incident scenarios
+├── AGENTS.md                      # Agent instructions & graph query guide
 ├── README.md                      # Primary project guide (this file)
 ├── __init__.py
 ├── __main__.py                    # python -m zta entry point
+├── graphify.cmd                   # Local knowledge graph query runner
 ├── install-unified-manager.sh     # Linux unified manager install script
 ├── install-zta-agent.ps1          # Windows agent PowerShell installer
 ├── install-zta.sh                 # Fast installation shell script
 ├── pyproject.toml                 # Project metadata & pytest configuration
+├── refresh_graphify.cmd           # Knowledge graph generation & refresh runner
 ├── requirements.txt               # Python package dependencies
 ├── zta.py                         # Root launcher script
 ├── zta_agent.py                   # Agent CLI runner
@@ -261,19 +283,28 @@ Background Worker Dispatcher
 
 ## Active Response Security Controls
 
-1. **User Session Logoff (`LOGOFF_USER`)**:
+1. **User Session Logoff (LOGOFF_USER)**:
    - Requires actual username and valid Windows Terminal Services (WTS) Session ID.
-   - Verifies session ownership before calling `logoff.exe`.
-   - Post-execution verification queries WTS sessions to confirm `SESSION_NOT_ACTIVE`.
-2. **Process Termination (`KILL_PROCESS`)**:
+   - Verifies session ownership before calling logoff.exe.
+   - Post-execution verification queries WTS sessions to confirm SESSION_NOT_ACTIVE.
+2. **Process Termination (KILL_PROCESS)**:
    - Requires exact matching Process ID (PID) and executable name.
    - Validates process ownership and monitors exit.
-   - Verified only upon confirmation of `PROCESS_NOT_ACTIVE`.
-3. **Network Isolation (`NETWORK_ISOLATION`)**:
+   - Verified only upon confirmation of PROCESS_NOT_ACTIVE.
+3. **Network Isolation (NETWORK_ISOLATION / ISOLATE_ENDPOINT / UNISOLATE_ENDPOINT)**:
    - Applies firewall containment rules while preserving manager connectivity for ongoing command and control.
-4. **Command Allowlist & Security**:
-   - Arbitrary PowerShell commands are strictly rejected.
-   - All dispatches must match registered command IDs and carry valid HMAC authorizations within a 5-minute validity window.
+   - Gate controlled via ZTA_ENABLE_NETWORK_ISOLATION=true to prevent unintended containment during testing.
+4. **Local Account Containment (LOCK_LOCAL_ACCOUNT / UNLOCK_LOCAL_ACCOUNT)**:
+   - Disables target local accounts with reversible state preservation.
+   - Unlock recovers saved enabled state and verifies postconditions.
+5. **Conservative File Quarantine (QUARANTINE_FILE)**:
+   - Atomically relocates suspect files to protected agent quarantine storage.
+   - Enforces SHA-256 pre- and post-validation, rejecting symlinks, reparse points, and protected OS paths.
+6. **Workstation Lock (LOCK_WORKSTATION)**: 
+   - Locks active interactive desktop sessions via Windows Terminal Services API.
+7. **Command Allowlist & Cryptographic Security**:
+   - Arbitrary PowerShell or shell commands are strictly rejected.
+   - All dispatches must match allowlisted action templates and carry valid HMAC SHA-256 signatures within a 5-minute validity window.
 
 ---
 
@@ -308,7 +339,7 @@ Background Worker Dispatcher
 The platform includes an automated regression test suite covering all engines, agents, PowerShell handlers, and dashboard APIs:
 
 ```bash
-# Run complete test suite (217 tests across all subsystems)
+# Run complete test suite (227 tests across all subsystems)
 pytest tests/
 # or with python -m:
 python -m pytest tests/
