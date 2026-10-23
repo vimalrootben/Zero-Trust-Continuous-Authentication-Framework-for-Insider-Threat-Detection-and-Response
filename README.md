@@ -336,6 +336,9 @@ Background Worker Dispatcher
 
 ## Verification & Testing
 
+For interactive architecture and dependency graphs, plus authentication and
+frontend/backend flow diagrams, see [Graphify visualization](docs/GRAPHIFY.md).
+
 The platform includes an automated regression test suite covering all engines, agents, PowerShell handlers, and dashboard APIs:
 
 ```bash
